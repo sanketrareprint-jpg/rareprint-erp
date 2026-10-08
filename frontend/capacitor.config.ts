@@ -8,9 +8,11 @@ const config: CapacitorConfig = {
 
   server: {
     androidScheme: "https",
-    // Uncomment the line below during local dev to point the Android WebView
-    // at your running Next.js dev server instead of a static build:
-    // url: "http://10.0.2.2:3001",
+    // Load the live site instead of the bundled static export, so UI fixes
+    // reach the app on every deploy without reinstalling the APK. Only
+    // native changes (plugins, permissions, this file) need a new APK.
+    // For local dev, swap this for your dev server, e.g. "http://10.0.2.2:3001".
+    url: "https://rareprint-erp.vercel.app",
     cleartext: false,
   },
 

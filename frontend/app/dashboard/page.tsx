@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
+import { AgentCallStats } from "@/components/AgentCallStats";
 import { API_BASE_URL } from "@/lib/api";
 import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { clearAuth, getAuthHeaders, getStoredUser } from "@/lib/auth";
@@ -991,6 +992,9 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* ── Calls & leads by agent (shared with CRM + Auto Dialer) ── */}
+        <AgentCallStats />
 
         {/* ── Call Compliance: month selector ── */}
         {(compliance || myStats || teamStats) && availableMonths.length > 0 && (

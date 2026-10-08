@@ -11,12 +11,26 @@
  *   known outcome, CALLBACK needs a future callbackAt, sane duration/date).
  * RULE 5 — "Today" for session stats starts at midnight India time.
  * RULE 6 — Skip window is 30 minutes (agreed with Sanket 2026-10-05).
+ * RULE 7 — Agent-stats periods (today / last 7 days / this month) start at
+ *   midnight India time.
+ * RULE 8 — Dial lists: missing list = ALL (the original queue); unknown list rejected.
+ * RULE 9 — A PC-popup response is validated like a phone result, and only
+ *   counts if typed after the lock was taken (never inherited by another agent).
+ * RULE 10 — Dialer settings: no WhatsApp campaign for WRONG_NUMBER; blank
+ *   campaign = send nothing; outcome templates get exactly 3 variables
+ *   (customer name, agent name, agent phone).
  *
  * If these tests fail after a code change, a dialer rule has been broken.
  */
 import { DialerOutcome, LeadStatus } from '@prisma/client';
 import {
   RECENT_CALL_SKIP_MINUTES,
+  isDeskResponseCurrent,
+  outcomeCampaignParams,
+  parseDeskResponse,
+  parseDialerList,
+  parseDialerSettings,
+  agentStatsSince,
   formatDuration,
   isConclusiveOutcome,
   istDayStart,
@@ -145,5 +159,98 @@ describe('dialer rules — India-time day and helpers (RULES 5, 6)', () => {
     expect(normalizeDialPhone('0091-98765 43210')).toBe('9876543210');
     expect(formatDuration(5)).toBe('5s');
     expect(formatDuration(125)).toBe('2m 05s');
+  });
+});
+
+describe('dialer rules — agent-stats periods (RULE 7)', () => {
+  // 2026-10-08 01:00 IST = 2026-10-07 19:30 UTC — still "yesterday" in UTC.
+  const now = new Date('2026-10-07T19:30:00Z');
+
+  it('today starts at midnight India time', () => {
+    expect(agentStatsSince('today', now).toISOString()).toBe('2026-10-07T18:30:00.000Z');
+  });
+
+  it('last 7 days includes today (6 days before today’s midnight)', () => {
+    expect(agentStatsSince('7d', now).toISOString()).toBe('2026-10-01T18:30:00.000Z');
+  });
+
+  it('this month starts on the 1st, India time', () => {
+    expect(agentStatsSince('month', now).toISOString()).toBe('2026-09-30T18:30:00.000Z');
+  });
+
+  it('month start uses the India date, not the UTC date, at a month boundary', () => {
+    // 2026-11-01 00:30 IST = 2026-10-31 19:00 UTC → November in India.
+    expect(agentStatsSince('month', new Date('2026-10-31T19:00:00Z')).toISOString()).toBe('2026-10-31T18:30:00.000Z');
+  });
+});
+
+describe('dialer rules — dial lists (RULE 8)', () => {
+  it('defaults to the original queue', () => {
+    expect(parseDialerList(undefined)).toBe('ALL');
+    expect(parseDialerList('')).toBe('ALL');
+  });
+  it('accepts known lists and rejects others', () => {
+    expect(parseDialerList('BUSY')).toBe('BUSY');
+    expect(parseDialerList('NOT_INTERESTED')).toBe('NOT_INTERESTED');
+    expect(parseDialerList('busy')).toBeNull();
+    expect(parseDialerList('WON')).toBeNull();
+  });
+});
+
+describe('dialer rules — PC popup response (RULE 9)', () => {
+  const now = new Date('2026-10-08T06:00:00Z');
+
+  it('needs a number and a known outcome', () => {
+    expect(parseDeskResponse({ outcome: 'INTERESTED' }, now)).toEqual({ ok: false, error: 'number is required' });
+    expect('error' in parseDeskResponse({ number: '9876543210', outcome: 'MAYBE' }, now)).toBe(true);
+  });
+
+  it('CALLBACK needs a future callbackAt, same as the phone', () => {
+    expect(parseDeskResponse({ number: '9876543210', outcome: 'CALLBACK' }, now)).toEqual({ ok: false, error: 'callbackAt is required when outcome is CALLBACK' });
+    const ok = parseDeskResponse({ number: '+91 98765 43210', outcome: 'CALLBACK', callbackAt: '2026-10-08T10:00:00Z', note: '  call after lunch ' }, now);
+    expect(ok).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.CALLBACK, note: 'call after lunch', callbackAt: new Date('2026-10-08T10:00:00Z') } });
+  });
+
+  it('ignores callbackAt for other outcomes', () => {
+    const r = parseDeskResponse({ number: '9876543210', outcome: 'BUSY', callbackAt: 'garbage' }, now);
+    expect(r).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.BUSY, note: null, callbackAt: null } });
+  });
+
+  it('only a response typed after the lock was taken counts', () => {
+    const lockedAt = new Date('2026-10-08T06:00:00Z');
+    expect(isDeskResponseCurrent({ lockedAt, deskOutcome: DialerOutcome.INTERESTED, deskSubmittedAt: new Date('2026-10-08T06:01:00Z') })).toBe(true);
+    expect(isDeskResponseCurrent({ lockedAt, deskOutcome: DialerOutcome.INTERESTED, deskSubmittedAt: new Date('2026-10-08T05:59:00Z') })).toBe(false);
+    expect(isDeskResponseCurrent({ lockedAt, deskOutcome: null, deskSubmittedAt: null })).toBe(false);
+  });
+});
+
+describe('dialer rules — settings (RULE 10)', () => {
+  it('keeps rate lists and campaign names, drops blank campaigns', () => {
+    const r = parseDialerSettings({
+      rateLists: [{ name: ' Visiting cards ', message: 'Hi {name}, 1000 cards ₹450' }],
+      outcomeCampaigns: { NOT_ANSWERED: 'dialer_missed_call', BUSY: '  ', INTERESTED: 'dialer_interested' },
+    });
+    expect('value' in r && r.value.rateLists).toEqual([{ id: expect.any(String), name: 'Visiting cards', message: 'Hi {name}, 1000 cards ₹450' }]);
+    expect('value' in r && r.value.outcomeCampaigns).toEqual({ NOT_ANSWERED: 'dialer_missed_call', INTERESTED: 'dialer_interested' });
+  });
+
+  it('never allows a campaign for wrong numbers', () => {
+    expect('error' in parseDialerSettings({ outcomeCampaigns: { WRONG_NUMBER: 'x' } })).toBe(true);
+  });
+
+  it('rejects unsafe campaign names and empty rate lists', () => {
+    expect('error' in parseDialerSettings({ outcomeCampaigns: { BUSY: 'bad name!' } })).toBe(true);
+    expect('error' in parseDialerSettings({ rateLists: [{ name: 'A', message: '' }] })).toBe(true);
+  });
+
+  it('gives unique ids to rate lists', () => {
+    const r = parseDialerSettings({ rateLists: [{ id: 'a', name: 'A', message: 'x' }, { id: 'a', name: 'B', message: 'y' }] });
+    const ids = 'value' in r ? r.value.rateLists.map((l) => l.id) : [];
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it('outcome templates get customer name, agent name, agent phone', () => {
+    expect(outcomeCampaignParams('Ravi', 'Priya', '9876500000')).toEqual(['Ravi', 'Priya', '9876500000']);
+    expect(outcomeCampaignParams(null, 'Priya', '9876500000')).toEqual(['Customer', 'Priya', '9876500000']);
   });
 });

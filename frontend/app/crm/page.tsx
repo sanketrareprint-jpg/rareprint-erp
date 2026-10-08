@@ -3,6 +3,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
+import { AgentCallStats } from "@/components/AgentCallStats";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import {
   makeCall as nativeMakeCall,
@@ -749,6 +750,9 @@ function CrmPageContent() {
             ))}
           </div>
         )}
+
+        {/* Calls & leads by agent (shared with Dashboard + Auto Dialer) */}
+        <AgentCallStats className="mt-3" />
 
         {/* SEARCH + FILTER */}
         <div className="flex gap-2 mt-3">

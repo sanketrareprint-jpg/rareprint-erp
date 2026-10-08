@@ -54,6 +54,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(
       `ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "dateOfBirth" DATE`,
     ).catch(() => { /* ignore if already exists */ });
+    // Migration 20261008120000_add_dialer_desk_response — nullable, metadata-only.
+    // The dialer PC popup polls GET /dialer/live every few seconds, so a DB
+    // without these would log an error per poll until migrated.
+    for (const col of [
+      `"deskOutcome" "DialerOutcome"`,
+      `"deskNote" TEXT`,
+      `"deskCallbackAt" TIMESTAMP(3)`,
+      `"deskSubmittedAt" TIMESTAMP(3)`,
+    ]) {
+      await this.$executeRawUnsafe(
+        `ALTER TABLE "DialerLock" ADD COLUMN IF NOT EXISTS ${col}`,
+      ).catch(() => { /* ignore if already exists, or DialerLock not created yet */ });
+    }
   }
   async onModuleDestroy() {
     await this.$disconnect();

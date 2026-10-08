@@ -1,12 +1,18 @@
 "use client";
-// Auto dialer — Android app only. Calls the agent's queue one after another:
+// Auto dialer — dialing runs in the Android app only. Calls the agent's queue one after another:
 //   GET /dialer/next → native startCall → call ends → outcome screen →
 //   POST /dialer/result → next lead dialed straight away (no countdown).
+// The outcome can also be typed on the PC (components/DialerDeskPopup.tsx):
+// the phone picks it up from GET /dialer/desk-response and saves it itself.
+// On the website this page shows the calling stats + (admins) dialer settings.
 // Native side: CallManagerPlugin.kt + DialerService.kt (lib/plugins/CallManager.ts).
 // Backend: backend/src/dialer (queue order, locks, status updates).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { AgentCallStats } from "@/components/AgentCallStats";
+import { DialerSettingsPanel } from "@/components/DialerSettingsPanel";
+import { DIAL_LISTS, DIALER_OUTCOMES as OUTCOMES, DIALER_SOURCE_LABELS as SOURCE_LABELS, type DialerOutcome as Outcome } from "@/lib/dialerShared";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
 import { getStoredUser } from "@/lib/auth";
@@ -20,23 +26,10 @@ import {
 
 const SIM_KEY = "dialer_sim_id"; // same key as the Phase 1 test screen
 const QUEUE_AGENT_KEY = "dialer_queue_agent_id"; // admins: whose leads to dial ("" = my own)
+const LIST_KEY = "dialer_list"; // which list to dial (DIAL_LISTS)
+const DESK_POLL_MS = 2000; // outcome screen: how often to check for a response typed on the PC
 
-type Outcome = "INTERESTED" | "CALLBACK" | "NOT_ANSWERED" | "BUSY" | "WRONG_NUMBER" | "NOT_INTERESTED";
-const OUTCOMES: Array<{ value: Outcome; label: string; className: string }> = [
-  { value: "INTERESTED", label: "Interested", className: "bg-green-600 text-white" },
-  { value: "CALLBACK", label: "Callback", className: "bg-blue-600 text-white" },
-  { value: "NOT_ANSWERED", label: "Not answered", className: "bg-slate-600 text-white" },
-  { value: "BUSY", label: "Busy", className: "bg-amber-500 text-white" },
-  { value: "WRONG_NUMBER", label: "Wrong number", className: "bg-red-700 text-white" },
-  { value: "NOT_INTERESTED", label: "Not interested", className: "bg-red-500 text-white" },
-];
-
-const SOURCE_LABELS: Record<string, string> = {
-  FOLLOW_UP_DUE: "Follow-up due",
-  FRESH_LEAD: "New lead",
-  NOT_CONTACTED: "Not contacted",
-  OLD_CALLBACK: "Older follow-up",
-};
+type OutcomeValues = { outcome: Outcome; note: string; callbackAtIso: string | null };
 
 interface QueueItem {
   source: string;
@@ -60,6 +53,8 @@ type Phase = "idle" | "loading" | "dialing" | "onCall" | "outcome" | "saving" | 
 const last10 = (p: string) => p.replace(/\D/g, "").slice(-10);
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const mmss = (sec: number) => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+/** ISO instant → the phone's local "YYYY-MM-DDTHH:mm" for a datetime-local input. */
+const toLocalInput = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const talkTime = (sec: number) => (sec >= 3600 ? `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`);
 
 export default function DialerPage() {
@@ -84,6 +79,9 @@ export default function DialerPage() {
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [queueAgentId, setQueueAgentId] = useState("");
   const queueAgentRef = useRef("");
+  const [dialList, setDialList] = useState("ALL");
+  const dialListRef = useRef("ALL");
+  const [fromPc, setFromPc] = useState(false); // outcome being saved came from the PC popup
 
   // Refs mirror state for native listeners and timers.
   const phaseRef = useRef<Phase>("idle");
@@ -154,7 +152,10 @@ export default function DialerPage() {
   const queueNext = useCallback(async () => {
     setError("");
     setPhaseBoth("loading");
-    const qs = queueAgentRef.current ? `?asAgentId=${encodeURIComponent(queueAgentRef.current)}` : "";
+    const params = new URLSearchParams();
+    if (queueAgentRef.current) params.set("asAgentId", queueAgentRef.current);
+    if (dialListRef.current !== "ALL") params.set("list", dialListRef.current);
+    const qs = params.toString() ? `?${params.toString()}` : "";
     const res = await apiFetch<{ item: QueueItem | null }>(`/dialer/next${qs}`, {}, (msg) => setError(msg));
     if (phaseRef.current !== "loading") return; // agent pressed Stop meanwhile
     if (!res) { setPhaseBoth("paused"); return; }
@@ -169,9 +170,13 @@ export default function DialerPage() {
     dialItem(res.item);
   }, [loadStats, dialItem]);
 
-  // Load saved SIM once.
+  // Load saved SIM + dial list once.
   useEffect(() => {
     try { const saved = localStorage.getItem(SIM_KEY) ?? ""; simIdRef.current = saved; setSimId(saved); } catch { /* ignore */ }
+    try {
+      const savedList = localStorage.getItem(LIST_KEY) ?? "ALL";
+      if (DIAL_LISTS.some((l) => l.value === savedList)) { dialListRef.current = savedList; setDialList(savedList); }
+    } catch { /* ignore */ }
   }, []);
 
   // Admins: load the seller list (same admin-only endpoint Call Compliance uses)
@@ -290,11 +295,18 @@ export default function DialerPage() {
    * "pause" / "stop" = don't. A Pause/Stop pressed during the call (page or
    * notification) wins over the button tapped here.
    */
-  const saveOutcome = async (mode: "next" | "pause" | "stop") => {
+  const saveOutcome = async (mode: "next" | "pause" | "stop", fromDesk?: OutcomeValues) => {
     const current = itemRef.current;
-    if (!current || !ended || !outcome) return;
-    if (outcome === "CALLBACK" && !callbackAt) { setError("Pick the callback date and time."); return; }
+    if (phaseRef.current !== "outcome") return; // already saving (phone tap and PC response racing)
+    const values: OutcomeValues | null = fromDesk ?? (outcome ? {
+      outcome,
+      note: note.trim(),
+      callbackAtIso: outcome === "CALLBACK" && callbackAt ? new Date(callbackAt).toISOString() : null,
+    } : null);
+    if (!current || !ended || !values) return;
+    if (values.outcome === "CALLBACK" && !values.callbackAtIso) { setError("Pick the callback date and time."); return; }
     setError("");
+    setFromPc(!!fromDesk);
     setPhaseBoth("saving");
     const saved = await apiMutate("/dialer/result", "POST", {
       leadId: current.leadId,
@@ -304,11 +316,17 @@ export default function DialerPage() {
       startedAt: new Date(ended.startedAt).toISOString(),
       durationSec: ended.durationSec,
       answered: ended.answered,
-      outcome,
-      note: note.trim() || undefined,
-      callbackAt: outcome === "CALLBACK" ? new Date(callbackAt).toISOString() : undefined,
+      outcome: values.outcome,
+      note: values.note || undefined,
+      callbackAt: values.outcome === "CALLBACK" ? values.callbackAtIso : undefined,
     }, (msg) => setError(msg));
-    if (!saved) { setPhaseBoth("outcome"); return; } // keep the screen so nothing is lost
+    setFromPc(false);
+    if (!saved) {
+      // Keep the screen so nothing is lost; show what the PC sent so the agent can save it by hand.
+      if (fromDesk) { setOutcome(fromDesk.outcome); setNote(fromDesk.note); if (fromDesk.callbackAtIso) setCallbackAt(toLocalInput(fromDesk.callbackAtIso)); }
+      setPhaseBoth("outcome");
+      return;
+    }
     loadStats();
     const then = afterCallRef.current !== "continue" ? afterCallRef.current : mode;
     setAfterCallBoth("continue");
@@ -317,11 +335,44 @@ export default function DialerPage() {
     else if (then === "pause") setPhaseBoth("paused");
     else queueNext(); // dial the next lead now
   };
+  const saveOutcomeRef = useRef(saveOutcome);
+  saveOutcomeRef.current = saveOutcome;
+  const deskTriedRef = useRef(""); // PC response already tried — a failed save isn't retried in a loop
+
+  // Outcome screen: if the reply was typed on the PC (same login), save it
+  // and dial the next number straight away. Checked as soon as the call
+  // ends, then every DESK_POLL_MS while this screen is open.
+  useEffect(() => {
+    if (!isNative || phase !== "outcome" || !item) return;
+    let cancelled = false;
+    const check = async () => {
+      const res = await apiFetch<{ response: { outcome: Outcome; note: string | null; callbackAt: string | null; submittedAt: string } | null }>(
+        `/dialer/desk-response?phone=${encodeURIComponent(item.phone)}`,
+      );
+      if (cancelled || !res?.response || phaseRef.current !== "outcome") return;
+      const r = res.response;
+      const key = `${item.phone}|${r.submittedAt}`;
+      if (deskTriedRef.current === key) return;
+      deskTriedRef.current = key;
+      saveOutcomeRef.current("next", { outcome: r.outcome, note: r.note ?? "", callbackAtIso: r.callbackAt });
+    };
+    check();
+    const t = setInterval(check, DESK_POLL_MS);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [isNative, phase, item]);
 
   if (!isNative) {
     return (
       <DashboardShell>
-        <div className="p-6 text-slate-700">Auto dialer works only in the RarePrint Android app</div>
+        <div className="p-6 space-y-4">
+          <h1 className="text-xl font-bold text-slate-900">Power Dialer</h1>
+          <p className="text-sm text-slate-700">
+            Dialing runs in the RarePrint Android app. Log in here with the same account: while your phone is dialing,
+            this website shows the customer with a form for their reply — saving it makes the phone dial the next number.
+          </p>
+          <AgentCallStats />
+          {isAdmin && <DialerSettingsPanel />}
+        </div>
       </DashboardShell>
     );
   }
@@ -349,6 +400,9 @@ export default function DialerPage() {
           <div className="flex-1 min-w-0 rounded-lg border p-2"><div className="text-xs text-slate-500">Talk time</div><div className="text-lg font-bold">{stats ? talkTime(stats.talkTimeSec) : "–"}</div></div>
         </section>
 
+        {/* Calls & leads by agent (shared with Dashboard + CRM) */}
+        <AgentCallStats />
+
         {/* Permissions (the app-launch screen asks too; this covers a revoked permission) */}
         {missingPerms && (
           <section className="rounded-lg border border-red-200 p-3 space-y-2 text-sm">
@@ -367,6 +421,22 @@ export default function DialerPage() {
             </div>
           </section>
         )}
+
+        {/* Which list to dial */}
+        <section className="rounded-lg border p-3">
+          <label className="block text-sm">
+            <span className="font-semibold">List to call</span>
+            <select value={dialList} disabled={running}
+              onChange={(e) => {
+                dialListRef.current = e.target.value;
+                setDialList(e.target.value);
+                try { localStorage.setItem(LIST_KEY, e.target.value); } catch { /* ignore */ }
+              }}
+              className="mt-1 w-full rounded-lg border px-3 py-2 bg-white">
+              {DIAL_LISTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+          </label>
+        </section>
 
         {/* Admins: whose leads to dial */}
         {isAdmin && (
@@ -435,7 +505,7 @@ export default function DialerPage() {
             {phase === "loading" && "Getting the next lead…"}
             {phase === "dialing" && "Calling…"}
             {phase === "onCall" && <>On call <b className="font-mono">{mmss(elapsed)}</b></>}
-            {(phase === "outcome" || phase === "saving") && "Call ended — save the outcome."}
+            {(phase === "outcome" || phase === "saving") && "Call ended — save the outcome (here or on your PC)."}
             {phase === "paused" && "Paused."}
             {phase === "empty" && "No more leads to call right now."}
             {phase === "stopped" && "Dialer stopped."}
@@ -471,6 +541,7 @@ export default function DialerPage() {
             </div>
             {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 break-words">{error}</div>}
             {simWarning && <div className="rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm font-medium text-red-800 break-words">⚠ {simWarning}</div>}
+            {fromPc && <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">Reply received from your PC — saving and calling the next number…</div>}
             <div className="grid grid-cols-2 gap-2">
               {OUTCOMES.map((o) => (
                 <button key={o.value} type="button" onClick={() => setOutcome(o.value)}

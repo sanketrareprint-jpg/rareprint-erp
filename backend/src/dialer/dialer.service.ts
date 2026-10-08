@@ -15,13 +15,29 @@
 //
 // Status changes / follow-ups go to the same Lead / ImportedContact rows the
 // CRM and Not Contacted tabs use — nothing is tracked in a second place.
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ActivityType, DialerOutcome, LeadStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import {
+  AgentStatsPeriod,
+  DIALER_ACTIVITY_PREFIX,
+  DIALER_LISTS,
   DIALER_LOCK_MINUTES,
   DIALER_ROLES,
+  DIALER_SETTINGS_KEY,
+  DialerList,
+  DialerSettings,
+  EMPTY_DIALER_SETTINGS,
+  LIVE_CALL_MAX_MINUTES,
+  OUTCOME_CAMPAIGN_REPEAT_HOURS,
   RECENT_CALL_SKIP_MINUTES,
+  agentStatsSince,
+  isDeskResponseCurrent,
+  outcomeCampaignParams,
+  parseDeskResponse,
+  parseDialerList,
+  parseDialerSettings,
   formatDuration,
   isConclusiveOutcome,
   istDayStart,
@@ -32,7 +48,10 @@ import {
 } from './dialer.rules';
 
 type DialerUser = { id: string; role: string };
-type QueueSource = 'FOLLOW_UP_DUE' | 'FRESH_LEAD' | 'NOT_CONTACTED' | 'OLD_CALLBACK';
+type QueueSource =
+  | 'FOLLOW_UP_DUE' | 'FRESH_LEAD' | 'NOT_CONTACTED' | 'OLD_CALLBACK'
+  | 'INTERESTED' | 'NOT_INTERESTED' | 'BUSY' | 'NOT_ANSWERED' // single-list dialing
+  | 'LIVE'; // GET /dialer/live (the number the phone is on now)
 
 interface Candidate {
   source: QueueSource;
@@ -60,7 +79,12 @@ const OUTCOME_LABELS: Record<DialerOutcome, string> = {
 
 @Injectable()
 export class DialerService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(DialerService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsapp: WhatsAppService,
+  ) {}
 
   private assertDialerRole(user: DialerUser) {
     if (!DIALER_ROLES.includes(user.role)) {
@@ -72,8 +96,10 @@ export class DialerService {
   // GET /dialer/next
   // ───────────────────────────────────────────────────────────────────────
 
-  async getNext(user: DialerUser, skipPhones: string[] = [], asAgentId?: string) {
+  async getNext(user: DialerUser, skipPhones: string[] = [], asAgentId?: string, listRaw?: string) {
     this.assertDialerRole(user);
+    const list = parseDialerList(listRaw);
+    if (!list) throw new BadRequestException(`list must be one of ${DIALER_LISTS.join(', ')}`);
     // Whose leads to dial: your own, or (admins only) a chosen seller's.
     const queueAgentId = await this.resolveQueueAgent(user, asAgentId);
     // Locks always belong to the person actually dialing, so an admin working a
@@ -86,12 +112,22 @@ export class DialerService {
     // previous one — free it for others.
     await this.prisma.dialerLock.deleteMany({ where: { agentId } });
 
-    const tiers: Array<(skip: number) => Promise<{ items: Candidate[]; more: boolean }>> = [
-      (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip),
-      (skip) => this.freshLeadCandidates(queueAgentId, skip),
-      (skip) => this.notContactedCandidates(queueAgentId, skip),
-      (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip),
-    ];
+    type Tier = (skip: number) => Promise<{ items: Candidate[]; more: boolean }>;
+    const dueToday: Tier = (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip);
+    const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip);
+    const notContacted: Tier = (skip) => this.notContactedCandidates(queueAgentId, skip);
+    const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip);
+    const tiersByList: Record<DialerList, Tier[]> = {
+      ALL: [dueToday, freshLeads, notContacted, olderFollowUps],
+      NEW_LEADS: [freshLeads],
+      NOT_CONTACTED: [notContacted],
+      FOLLOW_UPS: [dueToday, olderFollowUps],
+      INTERESTED: [(skip) => this.statusCandidates('INTERESTED', LeadStatus.INTERESTED, queueAgentId, skip)],
+      NOT_INTERESTED: [(skip) => this.statusCandidates('NOT_INTERESTED', LeadStatus.LOST, queueAgentId, skip)],
+      BUSY: [(skip) => this.lastOutcomeCandidates('BUSY', DialerOutcome.BUSY, queueAgentId, skip)],
+      NOT_ANSWERED: [(skip) => this.lastOutcomeCandidates('NOT_ANSWERED', DialerOutcome.NOT_ANSWERED, queueAgentId, skip)],
+    };
+    const tiers = tiersByList[list];
 
     // Numbers the agent skipped this session are treated as already seen.
     const seen = new Set<string>(
@@ -241,6 +277,71 @@ export class DialerService {
     return { items, more: contacts.length === PAGE_SIZE };
   }
 
+  /**
+   * Interested / Not interested lists: the agent's Leads in that status, plus
+   * Not Contacted contacts (no Lead yet) in that pipeline status. Least
+   * recently touched first.
+   */
+  private async statusCandidates(source: QueueSource, status: LeadStatus, agentId: string, skip: number) {
+    const [leads, contacts] = await Promise.all([
+      this.prisma.lead.findMany({
+        where: { agentId, status },
+        orderBy: { updatedAt: 'asc' },
+        skip,
+        take: PAGE_SIZE,
+        select: { id: true, phone: true, updatedAt: true },
+      }),
+      this.prisma.importedContact.findMany({
+        where: { agentId, leadId: null, pipelineStatus: status },
+        orderBy: { updatedAt: 'asc' },
+        skip,
+        take: PAGE_SIZE,
+        select: { id: true, phone: true, updatedAt: true },
+      }),
+    ]);
+    const items: Candidate[] = [
+      ...leads.map((l) => ({ at: l.updatedAt, c: { source, phone: normalizeDialPhone(l.phone), leadId: l.id, importedContactId: null, followUpId: null, scheduledAt: null } })),
+      ...contacts.map((x) => ({ at: x.updatedAt, c: { source, phone: normalizeDialPhone(x.phone), leadId: null, importedContactId: x.id, followUpId: null, scheduledAt: null } })),
+    ]
+      .sort((a, b) => a.at.getTime() - b.at.getTime())
+      .map((x) => x.c);
+    return { items, more: leads.length === PAGE_SIZE || contacts.length === PAGE_SIZE };
+  }
+
+  /**
+   * Busy / Not answered lists: numbers on the agent's Leads / Not Contacted
+   * contacts whose most recent auto-dialer call (by anyone) ended with that
+   * outcome. Won leads are left out. Longest-waiting first.
+   */
+  private async lastOutcomeCandidates(source: QueueSource, outcome: DialerOutcome, agentId: string, skip: number) {
+    const rows = await this.prisma.$queryRaw<Array<{ phone: string; leadId: string | null; importedContactId: string | null }>>(Prisma.sql`
+      SELECT t."phone", t."leadId", t."importedContactId"
+      FROM (
+        SELECT DISTINCT ON (dc."phone")
+          dc."phone", dc."leadId", dc."importedContactId", dc."outcome", dc."startedAt",
+          l."status" AS "leadStatus", ic."pipelineStatus" AS "contactStatus"
+        FROM "DialerCall" dc
+        LEFT JOIN "Lead" l ON l."id" = dc."leadId"
+        LEFT JOIN "ImportedContact" ic ON ic."id" = dc."importedContactId"
+        WHERE l."agentId" = ${agentId} OR (dc."leadId" IS NULL AND ic."agentId" = ${agentId})
+        ORDER BY dc."phone", dc."startedAt" DESC
+      ) t
+      WHERE t."outcome"::text = ${outcome}
+        AND COALESCE(t."leadStatus"::text, t."contactStatus"::text, '') <> ${LeadStatus.WON}
+      ORDER BY t."startedAt" ASC
+      OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
+    `);
+    const items: Candidate[] = rows.map((r) => ({
+      source,
+      phone: normalizeDialPhone(r.phone),
+      leadId: r.leadId,
+      importedContactId: r.leadId ? null : r.importedContactId,
+      followUpId: null,
+      scheduledAt: null,
+    }));
+    return { items, more: rows.length === PAGE_SIZE };
+  }
+
   /** Phones that must not be dialed right now. */
   private async blockedPhones(phones: string[], agentId: string, now: Date): Promise<Set<string>> {
     const recentCutoff = new Date(now.getTime() - RECENT_CALL_SKIP_MINUTES * 60 * 1000);
@@ -271,7 +372,7 @@ export class DialerService {
   private async claim(c: Candidate, agentId: string, now: Date): Promise<boolean> {
     const data = { agentId, leadId: c.leadId, importedContactId: c.importedContactId, lockedAt: now };
     try {
-      await this.prisma.dialerLock.create({ data: { phone: c.phone, ...data } });
+      await this.prisma.dialerLock.create({ data: { phone: c.phone, ...data }, select: { phone: true } });
       return true;
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
@@ -381,13 +482,13 @@ export class DialerService {
 
     const conclusive = isConclusiveOutcome(v.outcome);
     const description = [
-      `Auto dialer call — ${OUTCOME_LABELS[v.outcome]}`,
+      `${DIALER_ACTIVITY_PREFIX} — ${OUTCOME_LABELS[v.outcome]}`,
       v.answered ? formatDuration(v.durationSec) : 'not answered',
       v.callbackAt ? `callback ${v.callbackAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })}` : null,
       v.note,
     ].filter(Boolean).join(' · ');
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const call = await tx.dialerCall.create({
         data: {
           agentId: user.id,
@@ -502,6 +603,54 @@ export class DialerService {
 
       return { id: call.id, outcome: call.outcome, statusChange, followUpCreated };
     });
+
+    // After the commit, never inside the transaction: a slow or failing
+    // AiSensy call must not hold up or undo the saved call.
+    void this.sendOutcomeCampaign(user.id, result.id, v.phone, v.outcome, lead?.id ?? null, contact?.id ?? null)
+      .catch((e) => this.logger.error(`Dialer outcome WhatsApp failed for ${v.phone}: ${e}`));
+
+    return result;
+  }
+
+  /**
+   * Sends the AiSensy campaign set for this outcome in the dialer settings
+   * (nothing when none is set). Skipped when the same outcome's campaign was
+   * already triggered for this number in the last OUTCOME_CAMPAIGN_REPEAT_HOURS,
+   * so three "not answered" calls in a day send one message, not three.
+   */
+  private async sendOutcomeCampaign(
+    agentId: string, callId: string, phone: string, outcome: DialerOutcome,
+    leadId: string | null, contactId: string | null,
+  ) {
+    const campaignName = (await this.readSettings()).outcomeCampaigns[outcome];
+    if (!campaignName) return;
+
+    const since = new Date(Date.now() - OUTCOME_CAMPAIGN_REPEAT_HOURS * 60 * 60 * 1000);
+    const repeats = await this.prisma.dialerCall.count({ where: { phone, outcome, id: { not: callId }, createdAt: { gte: since } } });
+    if (repeats > 0) return;
+
+    const [agent, customer] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: agentId }, select: { fullName: true, phone: true } }),
+      leadId
+        ? this.prisma.lead.findUnique({ where: { id: leadId }, select: { name: true } })
+        : contactId ? this.prisma.importedContact.findUnique({ where: { id: contactId }, select: { name: true } }) : null,
+    ]);
+    if (!agent?.phone?.trim()) {
+      this.logger.warn(`Dialer outcome campaign ${campaignName} not sent to ${phone}: agent ${agentId} has no phone number on their user profile`);
+      return;
+    }
+
+    const sent = await this.whatsapp.sendDialerOutcome({
+      campaignName,
+      customerName: customer?.name ?? 'Customer',
+      customerPhone: phone,
+      templateParams: outcomeCampaignParams(customer?.name ?? null, agent.fullName, agent.phone),
+    });
+    if (sent && leadId) {
+      await this.prisma.leadActivity.create({
+        data: { leadId, type: ActivityType.WHATSAPP_SENT, description: `WhatsApp campaign ${campaignName} sent (auto dialer — ${OUTCOME_LABELS[outcome]})`, createdById: agentId },
+      });
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -522,5 +671,272 @@ export class DialerService {
       connected,
       talkTimeSec: all._sum.durationSec ?? 0,
     };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // GET /dialer/agent-stats
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Per-agent calling summary for the Dashboard, CRM and Dialer pages.
+   * Admins get every agent; everyone else gets only their own row.
+   *
+   * Calls (in the chosen period):
+   *   - Android auto dialer calls → DialerCall, counted by outcome.
+   *   - CRM calls (web power dialer / "Log call") → LeadActivity CALL_MADE /
+   *     CALL_BUSY / CALL_MISSED, minus the activities the auto dialer itself
+   *     writes (DIALER_ACTIVITY_PREFIX), so no call is counted twice.
+   *     CALL_BUSY → busy, CALL_MISSED → not answered, CALL_MADE → answered
+   *     (the CRM's log-call has no interested/not-interested choice).
+   * Current snapshot (not period-filtered), Leads + Not Contacted contacts that
+   * have no Lead yet (same as the dialer queue):
+   *   - newLeads    — Leads in NEW status
+   *   - pipeline    — CONTACTED / INTERESTED / QUOTED
+   *   - followUpsDue — customers (not WON/LOST) with a pending follow-up due by end of today
+   */
+  async getAgentStats(user: DialerUser, periodRaw?: string) {
+    const period: AgentStatsPeriod = periodRaw === '7d' || periodRaw === 'month' ? periodRaw : 'today';
+    const now = new Date();
+    const since = agentStatsSince(period, now);
+    const endOfToday = new Date(agentStatsSince('today', now).getTime() + 24 * 60 * 60 * 1000 - 1);
+    const isAdmin = user.role === 'ADMIN';
+    const onlyMe = isAdmin ? {} : { agentId: user.id };
+
+    const pipelineStatuses = [LeadStatus.CONTACTED, LeadStatus.INTERESTED, LeadStatus.QUOTED];
+    const closedStatuses = [LeadStatus.WON, LeadStatus.LOST];
+    const dueFollowUp = { some: { status: 'PENDING' as const, scheduledAt: { lte: endOfToday } } };
+
+    const [dialerCalls, crmCalls, leadsByStatus, contactsInPipeline, leadsDue, contactsDue] = await Promise.all([
+      this.prisma.dialerCall.groupBy({
+        by: ['agentId', 'outcome'],
+        where: { ...onlyMe, startedAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.leadActivity.groupBy({
+        by: ['createdById', 'type'],
+        where: {
+          ...(isAdmin ? {} : { createdById: user.id }),
+          type: { in: CALL_ACTIVITY_TYPES },
+          createdAt: { gte: since },
+          NOT: { description: { startsWith: DIALER_ACTIVITY_PREFIX } },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.lead.groupBy({
+        by: ['agentId', 'status'],
+        where: { ...onlyMe, status: { in: [LeadStatus.NEW, ...pipelineStatuses] } },
+        _count: { _all: true },
+      }),
+      this.prisma.importedContact.groupBy({
+        by: ['agentId'],
+        where: { ...(isAdmin ? { agentId: { not: null } } : onlyMe), leadId: null, pipelineStatus: { in: pipelineStatuses } },
+        _count: { _all: true },
+      }),
+      this.prisma.lead.groupBy({
+        by: ['agentId'],
+        where: { ...onlyMe, status: { notIn: closedStatuses }, followUps: dueFollowUp },
+        _count: { _all: true },
+      }),
+      this.prisma.importedContact.groupBy({
+        by: ['agentId'],
+        where: {
+          ...(isAdmin ? { agentId: { not: null } } : onlyMe),
+          leadId: null,
+          pipelineStatus: { notIn: closedStatuses },
+          followUps: dueFollowUp,
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    type Row = {
+      agentId: string; agentName: string; callsMade: number;
+      interested: number; callback: number; notAnswered: number; busy: number;
+      wrongNumber: number; notInterested: number; answeredOther: number;
+      newLeads: number; pipeline: number; followUpsDue: number;
+    };
+    type CountField = Exclude<keyof Row, 'agentId' | 'agentName'>;
+    const rows = new Map<string, Row>();
+    const row = (agentId: string): Row => {
+      let r = rows.get(agentId);
+      if (!r) {
+        r = {
+          agentId, agentName: '', callsMade: 0,
+          interested: 0, callback: 0, notAnswered: 0, busy: 0, wrongNumber: 0, notInterested: 0, answeredOther: 0,
+          newLeads: 0, pipeline: 0, followUpsDue: 0,
+        };
+        rows.set(agentId, r);
+      }
+      return r;
+    };
+
+    const outcomeField: Record<DialerOutcome, CountField> = {
+      INTERESTED: 'interested',
+      CALLBACK: 'callback',
+      NOT_ANSWERED: 'notAnswered',
+      BUSY: 'busy',
+      WRONG_NUMBER: 'wrongNumber',
+      NOT_INTERESTED: 'notInterested',
+    };
+    for (const g of dialerCalls) {
+      const r = row(g.agentId);
+      r.callsMade += g._count._all;
+      r[outcomeField[g.outcome]] += g._count._all;
+    }
+    for (const g of crmCalls) {
+      const r = row(g.createdById);
+      r.callsMade += g._count._all;
+      if (g.type === ActivityType.CALL_BUSY) r.busy += g._count._all;
+      else if (g.type === ActivityType.CALL_MISSED) r.notAnswered += g._count._all;
+      else r.answeredOther += g._count._all;
+    }
+    for (const g of leadsByStatus) {
+      if (g.status === LeadStatus.NEW) row(g.agentId).newLeads += g._count._all;
+      else row(g.agentId).pipeline += g._count._all;
+    }
+    for (const g of contactsInPipeline) if (g.agentId) row(g.agentId).pipeline += g._count._all;
+    for (const g of leadsDue) row(g.agentId).followUpsDue += g._count._all;
+    for (const g of contactsDue) if (g.agentId) row(g.agentId).followUpsDue += g._count._all;
+
+    // Every active sales agent gets a row even with nothing yet (admins: all
+    // agents; others: themselves), so a seller with zero calls is visible.
+    if (isAdmin) {
+      const agents = await this.prisma.user.findMany({ where: { isActive: true, role: 'SALES_AGENT' }, select: { id: true } });
+      agents.forEach((a) => row(a.id));
+    } else {
+      row(user.id);
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...rows.keys()] } },
+      select: { id: true, fullName: true },
+    });
+    users.forEach((u) => { const r = rows.get(u.id); if (r) r.agentName = u.fullName; });
+
+    const agents = [...rows.values()].sort((a, b) => b.callsMade - a.callsMade || a.agentName.localeCompare(b.agentName));
+    const totals = agents.reduce((t, r) => {
+      (Object.keys(t) as Array<keyof typeof t>).forEach((k) => { t[k] += r[k]; });
+      return t;
+    }, {
+      callsMade: 0, interested: 0, callback: 0, notAnswered: 0, busy: 0, wrongNumber: 0,
+      notInterested: 0, answeredOther: 0, newLeads: 0, pipeline: 0, followUpsDue: 0,
+    });
+
+    return { period, since, agents, totals };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // PC popup — GET /dialer/live, POST + GET /dialer/desk-response
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * The number the logged-in user's phone is dialing right now (their
+   * DialerLock), with what the PC popup shows. { item: null } when the phone
+   * isn't on a dialer call.
+   */
+  async getLive(user: DialerUser) {
+    this.assertDialerRole(user);
+    const now = new Date();
+    const lock = await this.prisma.dialerLock.findFirst({
+      where: { agentId: user.id, lockedAt: { gte: new Date(now.getTime() - LIVE_CALL_MAX_MINUTES * 60 * 1000) } },
+      orderBy: { lockedAt: 'desc' },
+      select: { phone: true, leadId: true, importedContactId: true, lockedAt: true, deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true },
+    });
+    if (!lock || (!lock.leadId && !lock.importedContactId)) return { item: null };
+
+    const [item, recentCalls, agent] = await Promise.all([
+      this.describe(
+        { source: 'LIVE', phone: lock.phone, leadId: lock.leadId, importedContactId: lock.importedContactId, followUpId: null, scheduledAt: null },
+        now,
+      ).catch(() => null), // lead/contact deleted mid-call
+      this.prisma.dialerCall.findMany({
+        where: { phone: lock.phone },
+        orderBy: { startedAt: 'desc' },
+        take: 5,
+        select: { startedAt: true, outcome: true, note: true, durationSec: true, answered: true, agent: { select: { fullName: true } } },
+      }),
+      this.prisma.user.findUnique({ where: { id: user.id }, select: { fullName: true, phone: true } }),
+    ]);
+    if (!item) return { item: null };
+
+    return {
+      item: {
+        ...item,
+        lockedAt: lock.lockedAt,
+        deskResponse: isDeskResponseCurrent(lock)
+          ? { outcome: lock.deskOutcome, note: lock.deskNote, callbackAt: lock.deskCallbackAt, submittedAt: lock.deskSubmittedAt }
+          : null,
+        recentCalls: recentCalls.map((c) => ({
+          startedAt: c.startedAt, outcome: c.outcome, note: c.note, durationSec: c.durationSec, answered: c.answered, agentName: c.agent.fullName,
+        })),
+        agent: { name: agent?.fullName ?? '', phone: agent?.phone ?? '' },
+      },
+    };
+  }
+
+  /**
+   * Response typed in the PC popup. Saved on the lock; the phone saves it as
+   * the call's result (with the real duration) as soon as the call ends, then
+   * dials the next number. Submitting again before that replaces it.
+   */
+  async saveDeskResponse(user: DialerUser, body: any) {
+    this.assertDialerRole(user);
+    const parsed = parseDeskResponse(body);
+    if ('error' in parsed) throw new BadRequestException(parsed.error);
+    const v = parsed.value;
+    const res = await this.prisma.dialerLock.updateMany({
+      where: { phone: v.phone, agentId: user.id },
+      data: { deskOutcome: v.outcome, deskNote: v.note, deskCallbackAt: v.callbackAt, deskSubmittedAt: new Date() },
+    });
+    if (res.count === 0) throw new NotFoundException('This call was already saved on the phone, or the dialer moved on');
+    return { ok: true };
+  }
+
+  /** The phone asks whether the PC has answered for the number it's on. */
+  async getDeskResponse(user: DialerUser, phoneRaw?: string) {
+    this.assertDialerRole(user);
+    const phone = normalizeDialPhone(phoneRaw);
+    if (phone.length < 6) throw new BadRequestException('phone is required');
+    const lock = await this.prisma.dialerLock.findFirst({
+      where: { phone, agentId: user.id },
+      select: { lockedAt: true, deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true },
+    });
+    if (!lock || !isDeskResponseCurrent(lock)) return { response: null };
+    return { response: { outcome: lock.deskOutcome, note: lock.deskNote, callbackAt: lock.deskCallbackAt, submittedAt: lock.deskSubmittedAt } };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // GET + PUT /dialer/settings — rate lists, outcome → AiSensy campaign
+  // ───────────────────────────────────────────────────────────────────────
+
+  private async readSettings(): Promise<DialerSettings> {
+    const row = await this.prisma.systemConfig.findUnique({ where: { key: DIALER_SETTINGS_KEY } });
+    if (!row) return EMPTY_DIALER_SETTINGS;
+    try {
+      const parsed = parseDialerSettings(JSON.parse(row.value));
+      if ('value' in parsed) return parsed.value;
+      this.logger.error(`Stored dialer settings are invalid (${parsed.error}) — using none`);
+    } catch (e) {
+      this.logger.error(`Stored dialer settings are not valid JSON: ${e}`);
+    }
+    return EMPTY_DIALER_SETTINGS;
+  }
+
+  async getSettings(user: DialerUser) {
+    this.assertDialerRole(user);
+    return this.readSettings();
+  }
+
+  async updateSettings(user: DialerUser, body: any) {
+    if (user.role !== 'ADMIN') throw new ForbiddenException('Only admins can change the dialer settings');
+    const parsed = parseDialerSettings(body);
+    if ('error' in parsed) throw new BadRequestException(parsed.error);
+    const value = JSON.stringify(parsed.value);
+    await this.prisma.systemConfig.upsert({
+      where: { key: DIALER_SETTINGS_KEY },
+      create: { key: DIALER_SETTINGS_KEY, value },
+      update: { value },
+    });
+    return parsed.value;
   }
 }

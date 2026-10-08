@@ -16,6 +16,7 @@ import {
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { DialerDeskPopup } from "@/components/DialerDeskPopup";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH" | "DESIGNER";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
@@ -556,6 +557,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <main className="erp-main" style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#f8fafc" }}>
         {children}
       </main>
+
+      {/* Website only: shows the customer the agent's phone (auto dialer) is calling right now. */}
+      {!isNativeApp && (user?.role === "SALES_AGENT" || user?.role === "ADMIN") && <DialerDeskPopup />}
 
       <nav className="erp-bottom-nav" aria-label="Primary navigation">
         {navItems.slice(0, 6).map((item) => {

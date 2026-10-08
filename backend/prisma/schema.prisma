@@ -1729,6 +1729,12 @@ model DialerLock {
   leadId            String?
   importedContactId String?
   lockedAt          DateTime @default(now())
+  // Outcome typed in the PC popup while the phone is on this call. The phone
+  // saves it (with the real call duration) when the call ends, then dials next.
+  deskOutcome       DialerOutcome?
+  deskNote          String?
+  deskCallbackAt    DateTime?
+  deskSubmittedAt   DateTime?
 
   @@index([agentId])
 }

@@ -496,6 +496,23 @@ export class WhatsAppService {
     });
   }
 
+  // Auto dialer: campaign chosen per call outcome in the dialer settings.
+  // See dialer.rules.ts outcomeCampaignParams for the 3 body variables.
+  async sendDialerOutcome(params: {
+    campaignName: string;
+    customerName: string;
+    customerPhone: string;
+    templateParams: string[];
+  }): Promise<boolean> {
+    return this.sendCampaign({
+      campaignName: params.campaignName,
+      customerName: params.customerName || 'Customer',
+      customerPhone: params.customerPhone,
+      orderNo: `dialer:${params.customerPhone}`,
+      templateParams: params.templateParams,
+    });
+  }
+
   static statusLabel(status: string): string {
     const map: Record<string, string> = {
       PENDING_APPROVAL:          'Pending Approval',
