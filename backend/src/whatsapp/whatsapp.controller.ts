@@ -1,5 +1,5 @@
 // backend/src/whatsapp/whatsapp.controller.ts
-import { Controller, ForbiddenException, Get, Post, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Post, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
@@ -24,6 +24,21 @@ export class WhatsAppController {
       throw new ForbiddenException('Only an admin can view WhatsApp send status');
     }
     return this.whatsapp.getSendStatus();
+  }
+
+  /**
+   * GET /whatsapp/my-failures?since=<ISO time>
+   * WhatsApp sends that failed after `since`, started by the caller's own
+   * actions — any logged-in user, own failures only. Polled by
+   * frontend/components/whatsapp-failure-alerts.tsx to show the failure on
+   * whatever screen the user is on.
+   */
+  @Get('my-failures')
+  async getMyFailures(
+    @Req() req: Request & { user: { id: string } },
+    @Query('since') since?: string,
+  ) {
+    return { serverTime: new Date().toISOString(), failures: await this.whatsapp.getFailuresForUser(req.user.id, since) };
   }
 
   /**

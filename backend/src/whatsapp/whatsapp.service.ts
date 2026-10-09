@@ -2,6 +2,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { complaintFormUrl } from '../common/complaint-link';
 import { PrismaService } from '../prisma/prisma.service';
+import { whatsappRequestUser } from './whatsapp-request-context';
 
 const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
 const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
@@ -105,6 +106,30 @@ function recordSendFailure(campaign: string, reason: string, code: number | null
   sendStatus.lastFailureCode = code;
 }
 
+// Recent failed sends, each tagged with the user whose action started it, so
+// that user's screen can show the failure right away (GET
+// /whatsapp/my-failures). Capped, and saved with the send status (same
+// SystemConfig row) so a failure just before a deploy/restart still reaches
+// the user's screen afterwards.
+export interface WhatsAppFailureEvent {
+  at: string;
+  userId: string;
+  campaign: string;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  reason: string;
+  code: number | null;
+}
+const MAX_FAILURE_EVENTS = 100;
+const recentFailures: WhatsAppFailureEvent[] = [];
+
+function recordFailureEvent(event: Omit<WhatsAppFailureEvent, 'at' | 'userId'>) {
+  const userId = whatsappRequestUser.getStore()?.userId;
+  if (!userId) return; // cron/webhook send — covered by the Dashboard banner
+  recentFailures.push({ ...event, at: new Date().toISOString(), userId });
+  if (recentFailures.length > MAX_FAILURE_EVENTS) recentFailures.shift();
+}
+
 export interface WhatsAppOrderParams {
   customerName: string;
   customerPhone: string;
@@ -133,6 +158,17 @@ export class WhatsAppService {
     };
   }
 
+  // Failed sends started by this user's own requests after `since` (an ISO
+  // time previously returned by this method). Without `since`, the last two
+  // minutes — covers a failure that landed while the page was reloading.
+  async getFailuresForUser(userId: string, since?: string): Promise<WhatsAppFailureEvent[]> {
+    await this.ensureSendStatusLoaded();
+    const sinceTime = since && !Number.isNaN(Date.parse(since))
+      ? since
+      : new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    return recentFailures.filter((e) => e.userId === userId && e.at > sinceTime);
+  }
+
   // Loads the saved status so a restart mid-outage continues the same failure
   // streak. Never throws; a failed load is retried on the next call.
   private ensureSendStatusLoaded(): Promise<void> {
@@ -145,7 +181,13 @@ export class WhatsAppService {
           const hadSendsThisRun = sendStatus.failing || !!sendStatus.lastSuccessAt;
           if (row?.value) {
             try {
-              mergeSavedStatus(JSON.parse(row.value) as Partial<WhatsAppSendStatus>);
+              const { recentFailures: savedEvents, ...savedStatus } = JSON.parse(row.value) as Partial<WhatsAppSendStatus> & { recentFailures?: WhatsAppFailureEvent[] };
+              mergeSavedStatus(savedStatus);
+              // Saved events are older than any recorded this run before the load.
+              if (Array.isArray(savedEvents)) {
+                recentFailures.unshift(...savedEvents);
+                recentFailures.splice(0, Math.max(0, recentFailures.length - MAX_FAILURE_EVENTS));
+              }
             } catch {
               this.logger.error('WhatsApp send status in SystemConfig is not valid JSON — starting fresh');
             }
@@ -165,7 +207,7 @@ export class WhatsAppService {
   private async saveSendStatus(): Promise<void> {
     if (!this.prisma || !sendStatusLoaded) return;
     try {
-      const value = JSON.stringify(sendStatus);
+      const value = JSON.stringify({ ...sendStatus, recentFailures });
       await this.prisma.systemConfig.upsert({
         where: { key: SEND_STATUS_KEY },
         update: { value },
@@ -190,10 +232,15 @@ export class WhatsAppService {
     options: { accountWideFailuresOnly?: boolean } = {},
   ): Promise<Response> {
     let campaign = 'unknown';
+    let recipientName: string | null = null;
+    let recipientPhone: string | null = null;
     try {
-      campaign = JSON.parse(String(init.body)).campaignName ?? campaign;
+      const body = JSON.parse(String(init.body));
+      campaign = body.campaignName ?? campaign;
+      recipientName = typeof body.userName === 'string' ? body.userName : null;
+      recipientPhone = typeof body.destination === 'string' ? body.destination : null;
     } catch {
-      // Body isn't JSON — keep 'unknown'.
+      // Body isn't JSON — keep the defaults.
     }
 
     await this.ensureSendStatusLoaded();
@@ -202,7 +249,9 @@ export class WhatsAppService {
     try {
       res = await fetch(url, init);
     } catch (err) {
-      recordSendFailure(campaign, `Could not reach AiSensy: ${err instanceof Error ? err.message : String(err)}`, null);
+      const reason = `Could not reach AiSensy: ${err instanceof Error ? err.message : String(err)}`;
+      recordSendFailure(campaign, reason, null);
+      recordFailureEvent({ campaign, recipientName, recipientPhone, reason, code: null });
       await this.saveSendStatus();
       throw err;
     }
@@ -221,6 +270,7 @@ export class WhatsAppService {
       }
       if (options.accountWideFailuresOnly && code !== AISENSY_OUT_OF_CREDITS_CODE) return res;
       recordSendFailure(campaign, reason, code);
+      recordFailureEvent({ campaign, recipientName, recipientPhone, reason, code });
       await this.saveSendStatus();
     }
     return res;

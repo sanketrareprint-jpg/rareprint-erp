@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { RegisterServiceWorker } from "./register-service-worker";
 import { DialerSetupCheck } from "@/components/dialer-setup-check";
+import { WhatsAppFailureAlerts } from "@/components/whatsapp-failure-alerts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -36,6 +37,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <RegisterServiceWorker />
         <DialerSetupCheck />
+        <WhatsAppFailureAlerts />
         {children}
       </body>
     </html>
