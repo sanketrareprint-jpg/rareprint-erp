@@ -7,14 +7,14 @@
 // Backend: GET / PUT /dialer/settings (PUT is admin-only there too).
 import { useEffect, useState } from "react";
 import { apiFetch, apiMutate } from "@/lib/apiFetch";
-import { DIALER_OUTCOMES, RATE_LIST_PLACEHOLDERS, type DialerOutcome, type DialerSettings, type RateList } from "@/lib/dialerShared";
+import { DIALER_OUTCOMES, NOT_INTERESTED_REASONS, RATE_LIST_PLACEHOLDERS, type DialerSettings, type RateList } from "@/lib/dialerShared";
 
 // No WhatsApp ever goes to a wrong number (backend rejects it too).
 const CAMPAIGN_OUTCOMES = DIALER_OUTCOMES.filter((o) => o.value !== "WRONG_NUMBER");
 
 export function DialerSettingsPanel() {
   const [rateLists, setRateLists] = useState<RateList[]>([]);
-  const [campaigns, setCampaigns] = useState<Partial<Record<DialerOutcome, string>>>({});
+  const [campaigns, setCampaigns] = useState<Partial<Record<string, string>>>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -84,11 +84,27 @@ export function DialerSettingsPanel() {
           </p>
         </div>
         {CAMPAIGN_OUTCOMES.map((o) => (
-          <label key={o.value} className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="w-32 font-medium text-slate-700">{o.label}</span>
-            <input value={campaigns[o.value] ?? ""} onChange={(e) => setCampaigns((c) => ({ ...c, [o.value]: e.target.value }))}
-              placeholder="e.g. dialer_missed_call_erp" className="min-w-0 flex-1 rounded-lg border px-3 py-2" />
-          </label>
+          <div key={o.value} className="space-y-2">
+            <label className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="w-32 font-medium text-slate-700">{o.label}</span>
+              <input value={campaigns[o.value] ?? ""} onChange={(e) => setCampaigns((c) => ({ ...c, [o.value]: e.target.value }))}
+                placeholder="e.g. dialer_missed_call_erp" className="min-w-0 flex-1 rounded-lg border px-3 py-2" />
+            </label>
+            {o.value === "NOT_INTERESTED" && (
+              <div className="ml-4 space-y-2 border-l-2 border-red-100 pl-4">
+                <p className="text-xs text-slate-500">
+                  Optional, by reason — used instead of the Not interested campaign above when that reason is chosen (blank = use the one above).
+                </p>
+                {NOT_INTERESTED_REASONS.map((r) => (
+                  <label key={r.value} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="w-28 text-slate-700">{r.label}</span>
+                    <input value={campaigns[`NI_${r.value}`] ?? ""} onChange={(e) => setCampaigns((c) => ({ ...c, [`NI_${r.value}`]: e.target.value }))}
+                      placeholder={`e.g. dialer_ni_${r.value.toLowerCase()}_erp`} className="min-w-0 flex-1 rounded-lg border px-3 py-2" />
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </div>
 

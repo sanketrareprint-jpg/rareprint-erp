@@ -43,6 +43,7 @@ import {
   describeReplyProducts,
   NI_LIST_REASONS,
   NOT_INTERESTED_REASON_LABELS,
+  campaignForReply,
   NotInterestedReason,
   ReplyProduct,
   outcomeCampaignParams,
@@ -673,7 +674,7 @@ export class DialerService {
 
     // After the commit, never inside the transaction: a slow or failing
     // AiSensy call must not hold up or undo the saved call.
-    void this.sendOutcomeCampaign(user.id, result.id, v.phone, v.outcome, lead?.id ?? null, contact?.id ?? null)
+    void this.sendOutcomeCampaign(user.id, result.id, v.phone, v.outcome, v.notInterestedReason, lead?.id ?? null, contact?.id ?? null)
       .catch((e) => this.logger.error(`Dialer outcome WhatsApp failed for ${v.phone}: ${e}`));
 
     return result;
@@ -691,16 +692,17 @@ export class DialerService {
   }
 
   /**
-   * Sends the AiSensy campaign set for this outcome in the dialer settings
-   * (nothing when none is set). Skipped when the same outcome's campaign was
+   * Sends the AiSensy campaign set for this reply in the dialer settings
+   * (campaignForReply: the not-interested reason's own campaign, else the
+   * outcome's; nothing when none is set). Skipped when the same outcome's campaign was
    * already triggered for this number in the last OUTCOME_CAMPAIGN_REPEAT_HOURS,
    * so three "not answered" calls in a day send one message, not three.
    */
   private async sendOutcomeCampaign(
     agentId: string, callId: string, phone: string, outcome: DialerOutcome,
-    leadId: string | null, contactId: string | null,
+    reason: NotInterestedReason | null, leadId: string | null, contactId: string | null,
   ) {
-    const campaignName = (await this.readSettings()).outcomeCampaigns[outcome];
+    const campaignName = campaignForReply((await this.readSettings()).outcomeCampaigns, outcome, reason);
     if (!campaignName) return;
 
     const since = new Date(Date.now() - OUTCOME_CAMPAIGN_REPEAT_HOURS * 60 * 60 * 1000);

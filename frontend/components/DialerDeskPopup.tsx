@@ -24,6 +24,7 @@ import {
   describeReplyProducts,
   fillRateListMessage,
   notInterestedReasonLabel,
+  productsWhatsAppMessage,
   replyProductRule,
   whatsappAppUrl,
   whatsappWebUrl,
@@ -213,6 +214,21 @@ export function DialerDeskPopup() {
 
   const updateRow = (i: number, patch: Partial<ReplyProductDraft>) =>
     setRows((list) => list.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  // Products for "Send these products on WhatsApp": what's typed in the form,
+  // or what was already saved for this call. Rows without a product or quantity are skipped.
+  const productName = (id: string) => products?.find((p) => p.id === id)?.name ?? "Product";
+  const productsToSend: Array<{ name: string; quantity: number; rate: number | null }> = submitted
+    ? (submitted.outcome === "INTERESTED" ? submitted.products ?? [] : []).map((p) => ({ name: p.productName ?? productName(p.productId), quantity: p.quantity, rate: p.rate }))
+    : rows
+        .filter((r) => r.productId && Number(r.quantity) > 0)
+        .map((r) => ({ name: productName(r.productId), quantity: Number(r.quantity), rate: r.rate.trim() && Number.isFinite(Number(r.rate)) ? Number(r.rate) : null }));
+  const sendProducts = (where: "web" | "app") => {
+    if (!productsToSend.length) return;
+    const text = productsWhatsAppMessage(productsToSend, { name: item.name, agent: item.agent.name, agentPhone: item.agent.phone });
+    if (where === "web") window.open(whatsappWebUrl(item.phone, text), WHATSAPP_WINDOW);
+    else window.location.href = whatsappAppUrl(item.phone, text);
+  };
 
   const rateListText = () => rateList ? fillRateListMessage(rateList.message, {
     name: item.name, business: item.businessName, agent: item.agent.name, agentPhone: item.agent.phone,
@@ -413,6 +429,20 @@ export function DialerDeskPopup() {
           {(outcome === "INTERESTED" || submitted?.outcome === "INTERESTED") && (
             <section className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
               <div className="flex items-center gap-1 font-semibold text-emerald-800"><MessageCircle size={14} /> Send product details on WhatsApp</div>
+              {/* 1. The products entered above, with quantity + rate */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" disabled={!productsToSend.length} onClick={() => sendProducts("web")}
+                  className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white disabled:opacity-50">
+                  Send {productsToSend.length ? `these ${productsToSend.length} product${productsToSend.length > 1 ? "s" : ""}` : "the products above"} — WhatsApp Web
+                </button>
+                <button type="button" disabled={!productsToSend.length} onClick={() => sendProducts("app")}
+                  className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-xs font-medium text-emerald-800 disabled:opacity-50">
+                  Desktop app
+                </button>
+              </div>
+              {!productsToSend.length && <p className="text-xs text-emerald-800">Add the products (and quantity) above to send them.</p>}
+              {/* 2. A ready-made rate list (Dialer settings) */}
+              <div className="pt-1 text-xs font-semibold text-emerald-800">Or send a rate list</div>
               {settings && settings.rateLists.length === 0 && (
                 <p className="text-xs text-emerald-800">No rate lists yet — an admin can add them on the Dialer page.</p>
               )}

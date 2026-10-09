@@ -432,6 +432,14 @@ const MAX_RATE_LIST_MESSAGE = 3000; // stays well inside a WhatsApp Web link's l
 const CAMPAIGN_NAME_RE = /^[A-Za-z0-9_\-]{1,100}$/;
 /** No WhatsApp goes to a number marked wrong. */
 export const CAMPAIGN_OUTCOMES: DialerOutcome[] = DIALER_OUTCOMES.filter((o) => o !== DialerOutcome.WRONG_NUMBER);
+/**
+ * Settings keys a campaign can be set for: every outcome above, plus one per
+ * not-interested reason (NI_RATE, NI_QUANTITY, …) — see campaignForReply.
+ */
+export const CAMPAIGN_KEYS: string[] = [
+  ...CAMPAIGN_OUTCOMES,
+  ...NOT_INTERESTED_REASONS.map((r) => `NI_${r}`),
+];
 /** The same outcome's campaign isn't sent to one number twice within this window. */
 export const OUTCOME_CAMPAIGN_REPEAT_HOURS = 24;
 
@@ -440,8 +448,8 @@ export interface RateList { id: string; name: string; message: string; }
 
 export interface DialerSettings {
   rateLists: RateList[];
-  /** AiSensy API campaign name per outcome; missing = send nothing. */
-  outcomeCampaigns: Partial<Record<DialerOutcome, string>>;
+  /** AiSensy API campaign name per CAMPAIGN_KEYS entry (outcome or NI_<reason>); missing = send nothing. */
+  outcomeCampaigns: Partial<Record<string, string>>;
 }
 
 export const EMPTY_DIALER_SETTINGS: DialerSettings = { rateLists: [], outcomeCampaigns: {} };
@@ -469,16 +477,33 @@ export function parseDialerSettings(body: any): { ok: true; value: DialerSetting
 
   const rawCampaigns = body?.outcomeCampaigns ?? {};
   if (typeof rawCampaigns !== 'object' || Array.isArray(rawCampaigns)) return { ok: false, error: 'outcomeCampaigns must be an object' };
-  const outcomeCampaigns: Partial<Record<DialerOutcome, string>> = {};
+  const outcomeCampaigns: Partial<Record<string, string>> = {};
   for (const [key, value] of Object.entries(rawCampaigns)) {
-    if (!CAMPAIGN_OUTCOMES.includes(key as DialerOutcome)) return { ok: false, error: `No WhatsApp campaign can be set for "${key}"` };
+    if (!CAMPAIGN_KEYS.includes(key)) return { ok: false, error: `No WhatsApp campaign can be set for "${key}"` };
     const name = trimmedOrNull(value);
     if (!name) continue; // blank = send nothing for this outcome
     if (!CAMPAIGN_NAME_RE.test(name)) return { ok: false, error: `Campaign name "${name}" may only use letters, numbers, _ and -` };
-    outcomeCampaigns[key as DialerOutcome] = name;
+    outcomeCampaigns[key] = name;
   }
 
   return { ok: true, value: { rateLists, outcomeCampaigns } };
+}
+
+/**
+ * Which campaign to send after a call. Most specific first (CLAUDE.md §29):
+ * a not-interested reason's own campaign (NI_RATE, …) wins; otherwise the
+ * outcome's campaign (NOT_INTERESTED, BUSY, …); otherwise none.
+ */
+export function campaignForReply(
+  campaigns: Partial<Record<string, string>>,
+  outcome: DialerOutcome,
+  reason: NotInterestedReason | null,
+): string | null {
+  if (outcome === DialerOutcome.NOT_INTERESTED && reason) {
+    const byReason = campaigns[`NI_${reason}`];
+    if (byReason) return byReason;
+  }
+  return campaigns[outcome] ?? null;
 }
 
 /**

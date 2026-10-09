@@ -50,7 +50,8 @@ export const DIALER_SOURCE_LABELS: Record<string, string> = {
 export interface RateList { id: string; name: string; message: string; }
 export interface DialerSettings {
   rateLists: RateList[];
-  outcomeCampaigns: Partial<Record<DialerOutcome, string>>;
+  /** AiSensy campaign per outcome, or per not-interested reason (NI_RATE, …) — see campaignForReply in dialer.rules.ts. */
+  outcomeCampaigns: Partial<Record<string, string>>;
 }
 
 /** Placeholders a rate-list message may use. */
@@ -141,6 +142,29 @@ export function buildReplyDetails(
       ...(products.length ? { products } : {}),
     },
   };
+}
+
+/**
+ * WhatsApp message listing the products agreed on the call (Interested):
+ * name, quantity and the rate typed by the agent. No totals are worked out
+ * here — the quote / order is where amounts are calculated.
+ */
+export function productsWhatsAppMessage(
+  products: Array<{ name: string; quantity: number; rate: number | null }>,
+  vars: { name: string | null; agent: string; agentPhone: string },
+): string {
+  const lines = products.map((p) =>
+    `• ${p.name} — ${p.quantity.toLocaleString("en-IN")} pcs${p.rate != null ? ` @ ₹${p.rate}/pc` : ""}`);
+  return [
+    `Dear ${vars.name?.trim() || "Sir/Madam"},`,
+    "",
+    "Thank you for your time on the call. As discussed:",
+    ...lines,
+    "",
+    "Please let me know if you'd like to go ahead or need any changes.",
+    "",
+    `— ${vars.agent}, RarePrint${vars.agentPhone ? `, ${vars.agentPhone}` : ""}`,
+  ].join("\n");
 }
 
 /** "Envelope × 5,000 @ ₹1.25" for call history. */

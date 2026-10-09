@@ -53,6 +53,7 @@ import {
   wantsRecycleFollowUp,
   isOnLiveCall,
   parseLiveState,
+  campaignForReply,
 } from './dialer.rules';
 
 describe('dialer rules — outcome → status (RULE 1)', () => {
@@ -427,5 +428,26 @@ describe('dialer rules — PC reply: call next / pause / stop (RULE 12)', () => 
   });
   it('rejects anything else', () => {
     expect('error' in parseDeskResponse({ ...base, then: 'LATER' }, now)).toBe(true);
+  });
+});
+
+describe('dialer rules — campaign per not-interested reason (RULE 13)', () => {
+  const campaigns = { NOT_INTERESTED: 'ni_general', NI_RATE: 'ni_rate', BUSY: 'busy_c' };
+  it('reason campaign wins over the general not-interested one', () => {
+    expect(campaignForReply(campaigns, DialerOutcome.NOT_INTERESTED, 'RATE')).toBe('ni_rate');
+  });
+  it('falls back to the not-interested campaign when the reason has none', () => {
+    expect(campaignForReply(campaigns, DialerOutcome.NOT_INTERESTED, 'TRUST')).toBe('ni_general');
+    expect(campaignForReply(campaigns, DialerOutcome.NOT_INTERESTED, null)).toBe('ni_general');
+  });
+  it('other outcomes use their own campaign; reason keys never leak into them', () => {
+    expect(campaignForReply(campaigns, DialerOutcome.BUSY, null)).toBe('busy_c');
+    expect(campaignForReply({ NI_RATE: 'ni_rate' }, DialerOutcome.INTERESTED, null)).toBeNull();
+  });
+  it('settings accept reason keys, still reject wrong number', () => {
+    const r = parseDialerSettings({ outcomeCampaigns: { NI_RATE: 'dialer_ni_rate_erp', NI_TRUST: ' ' } });
+    expect('value' in r && r.value.outcomeCampaigns).toEqual({ NI_RATE: 'dialer_ni_rate_erp' });
+    expect('error' in parseDialerSettings({ outcomeCampaigns: { WRONG_NUMBER: 'x' } })).toBe(true);
+    expect('error' in parseDialerSettings({ outcomeCampaigns: { NI_PRICE: 'x' } })).toBe(true);
   });
 });
