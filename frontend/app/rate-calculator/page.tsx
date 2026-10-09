@@ -158,6 +158,8 @@ type Result = {
     clubbingStickersPerBlock: number;
     clubbingBlockArea: number;
     clubbingSets: number;
+    clubbingRatePerSqIn?: number;
+    clubbingFixedCost?: number;
     clubbingMultiplier: number | null;
     clubbingCost: number | null;
     clubbingTotal: number | null;
@@ -465,11 +467,21 @@ function buildQuotationText({
   return sanitizeQuotationText(lines.join("\n"));
 }
 
-function getStickerMultiplier(cost: number) {
-  if (cost < 500) return 4;
-  if (cost < 1000) return 3;
-  if (cost < 3000) return 2;
-  return 1.67;
+// Sticker auto multiplier from the master sticker rates (admin roles only —
+// other roles get no values, and never see the preview that uses this).
+// Mirrors backend getStickerMultiplier.
+function getStickerMultiplier(cost: number, sticker: any): number {
+  const slabs: [number, number][] = Array.isArray(sticker?.multiplierSlabs) ? sticker.multiplierSlabs : [];
+  const slab = slabs.find(([below]) => cost < Number(below));
+  return Number(slab ? slab[1] : (sticker?.multiplierAbove ?? 0));
+}
+
+// "Under 500=×4 · 500-1000=×3 · … · 3000+=×1.67", built from the master slabs.
+function stickerSlabsText(sticker: any): string {
+  const slabs: [number, number][] = Array.isArray(sticker?.multiplierSlabs) ? sticker.multiplierSlabs : [];
+  if (slabs.length === 0) return "";
+  const parts = slabs.map(([below, mult], i) => `${i === 0 ? "Under " : `${slabs[i - 1][0]}-`}${below}=×${mult}`);
+  return [...parts, `${slabs[slabs.length - 1][0]}+=×${sticker?.multiplierAbove ?? ""}`].join(" · ");
 }
 
 // Converts type key like "bond70" → "70 GSM Bond", "map90" → "90 GSM Maplitho"
@@ -963,7 +975,7 @@ function StickerProductionCard({ sticker, showCosts }: {
               <p className="text-xs text-slate-500">
                 {sticker.clubbingStickersPerBlock > 1
                   ? `${sticker.clubbingBlockColumns}×${sticker.clubbingBlockRows} = ${sticker.clubbingStickersPerBlock}/block · ${sticker.clubbingSets.toLocaleString()} blocks`
-                  : "Area × qty"}{showCosts && " × 0.035 + Rs.150"}
+                  : "Area × qty"}{showCosts && ` × ${sticker.clubbingRatePerSqIn ?? ""} + Rs.${sticker.clubbingFixedCost ?? ""}`}
               </p>
               <p className="text-sm font-extrabold text-purple-800 mt-2">{fmt(sticker.clubbingTotal)}</p>
               {showCosts && sticker.clubbingCost != null && <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {sticker.clubbingMultiplier}</p>}
@@ -982,7 +994,7 @@ function ClubbingComparisonCard({ clubbing, multiplier }: {
   clubbing: NonNullable<Result["clubbing"]>;
   multiplier?: number;
 }) {
-  const mult = multiplier ?? 1.67;
+  const mult = multiplier ?? "";
   const ourWins = clubbing.winner === "ours";
   return (
     <div className="border border-purple-200 rounded-xl p-4 mt-3 bg-purple-50">
@@ -1359,25 +1371,25 @@ export default function RateCalculatorPage() {
     ? { cols: stickerRotatedCols, rows: stickerRotatedRows, perSheet: stickerRotatedFit, rotated: true }
     : { cols: stickerNormalCols, rows: stickerNormalRows, perSheet: stickerNormalFit, rotated: false };
   const stickerSheetsNeeded = stickerBestFit.perSheet > 0 ? Math.ceil(rQty / stickerBestFit.perSheet) : 0;
-  const stickerPlainCost = stickerSheetsNeeded * 13;
-  const stickerNonTearableCost = stickerSheetsNeeded * 19;
-  const stickerHalfCutPct = Number(rates?.sticker?.halfCutPct ?? 30);
+  const stickerPlainCost = stickerSheetsNeeded * Number(rates?.sticker?.plainSheetRate ?? 0);
+  const stickerNonTearableCost = stickerSheetsNeeded * Number(rates?.sticker?.nonTearableSheetRate ?? 0);
+  const stickerHalfCutPct = Number(rates?.sticker?.halfCutPct ?? 0);
   const stickerSelectedBaseCost = rStickerType === "nontearable" ? stickerNonTearableCost : stickerPlainCost;
   const stickerHalfCutCost = rStickerHalfCut ? stickerSelectedBaseCost * stickerHalfCutPct / 100 : 0;
   const stickerSelectedCost = stickerSelectedBaseCost + stickerHalfCutCost;
-  const stickerAutoMultiplier = getStickerMultiplier(stickerSelectedCost);
+  const stickerAutoMultiplier = getStickerMultiplier(stickerSelectedCost, rates?.sticker);
   const stickerClubCols = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(5 / rStickerW));
   const stickerClubRows = stickerArea <= 0 || stickerArea >= 6 ? 1 : Math.max(1, Math.ceil(6 / (stickerClubCols * stickerArea)));
   const stickerClubPerBlock = stickerClubCols * stickerClubRows;
   const stickerClubBlockArea = stickerArea * stickerClubPerBlock;
   const stickerClubSets = stickerClubPerBlock > 0 ? Math.ceil(rQty / stickerClubPerBlock) : 0;
   const stickerClubEligible = rQty >= 1000 && stickerClubBlockArea >= 6;
-  const stickerClubBaseCost = stickerClubEligible ? stickerClubBlockArea * stickerClubSets * 0.035 + 150 : 0;
+  const stickerClubBaseCost = stickerClubEligible ? stickerClubBlockArea * stickerClubSets * Number(rates?.sticker?.clubbingRatePerSqIn ?? 0) + Number(rates?.sticker?.clubbingFixedCost ?? 0) : 0;
   // Die Cutting — clubbing only, not in-house plain/non tearable. Die is the
   // clubbing block + 1" margin per side; punching is a flat per-1000-sheets
   // charge (clubbing always runs 1000 sheets per batch, same as backend).
-  const stickerDieRatePerSqIn = Number(rates?.sticker?.dieRatePerSqIn ?? 6);
-  const stickerPunchingRatePer1000 = Number(rates?.sticker?.punchingRatePer1000 ?? 500);
+  const stickerDieRatePerSqIn = Number(rates?.sticker?.dieRatePerSqIn ?? 0);
+  const stickerPunchingRatePer1000 = Number(rates?.sticker?.punchingRatePer1000 ?? 0);
   const stickerDieBlockW = stickerClubCols * rStickerW;
   const stickerDieBlockH = stickerClubRows * rStickerH;
   const stickerDieW = stickerDieBlockW > 0 ? stickerDieBlockW + 2 : 0;
@@ -1388,7 +1400,7 @@ export default function RateCalculatorPage() {
   const stickerPunchingCost = stickerDieCuttingApplies ? stickerPunchingRatePer1000 : 0;
   const stickerDieCuttingCost = stickerDieCost + stickerPunchingCost;
   const stickerClubCost = stickerClubEligible ? stickerClubBaseCost + stickerDieCuttingCost : 0;
-  const stickerClubMultiplier = stickerClubEligible ? getStickerMultiplier(stickerClubCost) : 0;
+  const stickerClubMultiplier = stickerClubEligible ? getStickerMultiplier(stickerClubCost, rates?.sticker) : 0;
 
   const loadRates = useCallback(async () => {
     setRatesLoading(true);
@@ -1476,7 +1488,7 @@ export default function RateCalculatorPage() {
           subtotal: result.subtotal ?? 0,
           total: result.total ?? 0,
           perPiece: result.perPiece ?? result.perSticker ?? null,
-          multiplier: result.multiplier ?? 1.67,
+          multiplier: result.multiplier ?? null,  // the server recomputes it
           inputParams: { ...inputParams, quotationNumber: quoteNumber, quotationText },
         }),
       });
@@ -1678,7 +1690,7 @@ export default function RateCalculatorPage() {
   const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly);
 
   // Multiplier hint label
-  const masterMult = rates?.multiplier ?? 1.67;
+  const masterMult = rates?.multiplier ?? "";
   const multHint = `Default from master: ×${masterMult}`;
 
   const reverseCuts = rProduct === "sticker" ? stickerBestFit.perSheet : (CUTS[rParent]?.[rSize] ?? 4);
@@ -1691,25 +1703,25 @@ export default function RateCalculatorPage() {
   const ppTier = ppTiers.find((t: number) => rQty >= t) ?? ppTiers[ppTiers.length - 1] ?? 1000;
   const ppRateKey = `${rPpCreasing === "double" ? "double" : "single"}-${rSides === "double" ? "double" : "single"}-${rPpMicron === 350 ? 350 : 300}`;
   const ppBaseRate = ppRates?.baseCosts?.[ppRateKey]?.[ppTier] ?? 0;
-  const ppClipRate = rPpClip ? (ppRates?.clip ?? 1.25) : 0;
-  const ppPocketRate = rPpPocketSides * (ppRates?.pocketOneSide ?? 2.5);
-  const ppGstPct = ppRates?.gstPct ?? 18;
-  const ppMult = rMult !== "" ? rMult : (ppRates?.multiplier ?? 1.67);
+  const ppClipRate = rPpClip ? (ppRates?.clip ?? 0) : 0;
+  const ppPocketRate = rPpPocketSides * (ppRates?.pocketOneSide ?? 0);
+  const ppGstPct = ppRates?.gstPct ?? 0;
+  const ppMult = rMult !== "" ? rMult : (ppRates?.multiplier ?? 0);
   const ppPreviewPerFile = (ppBaseRate + ppClipRate + ppPocketRate) * (1 + ppGstPct / 100) * ppMult;
   const bagRates = rates?.diagnosticBags;
   const bagTiers = (bagRates?.tiers ?? [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]).map(Number).sort((a: number, b: number) => b - a);
   const bagTier = bagTiers.find((t: number) => rQty >= t) ?? bagTiers[bagTiers.length - 1] ?? 1000;
   const bagBaseRate = bagRates?.baseCosts?.[rBagSize]?.[bagTier] ?? 0;
-  const bagGstPct = bagRates?.gstPct ?? 18;
-  const bagMult = rMult !== "" ? rMult : (bagRates?.multiplier ?? 1.67);
+  const bagGstPct = bagRates?.gstPct ?? 0;
+  const bagMult = rMult !== "" ? rMult : (bagRates?.multiplier ?? 0);
   const bagPreviewPerPiece = bagBaseRate * (1 + bagGstPct / 100) * bagMult;
   const nonWovenRates = rates?.nonWovenBag;
-  const nonWovenBagsPerKg = Number(nonWovenRates?.bagsPerKg?.[rNonWovenSize] ?? 40);
-  const nonWovenRatePerKg = Number(nonWovenRates?.ratePerKg ?? 120);
-  const nonWovenPrintingCostPerBag = Number(nonWovenRates?.printingCostPerBag ?? 1);
-  const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 2) : 0;
-  const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 1.67);
-  const nonWovenDefaultPlateRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorPerPlateRate ?? 1000) : Number(nonWovenRates?.perPlateRate ?? 500);
+  const nonWovenBagsPerKg = Number(nonWovenRates?.bagsPerKg?.[rNonWovenSize] ?? 0);
+  const nonWovenRatePerKg = Number(nonWovenRates?.ratePerKg ?? 0);
+  const nonWovenPrintingCostPerBag = Number(nonWovenRates?.printingCostPerBag ?? 0);
+  const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 0) : 0;
+  const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 0);
+  const nonWovenDefaultPlateRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorPerPlateRate ?? 0) : Number(nonWovenRates?.perPlateRate ?? 0);
   const nonWovenPerPlateRateVal = rNonWovenPerPlateRate === "" ? nonWovenDefaultPlateRate : Number(rNonWovenPerPlateRate);
   const nonWovenPlates = rNonWovenPlateMode === "2" ? 2 : 1;
   const nonWovenPlateCost = nonWovenPlates * nonWovenPerPlateRateVal;
@@ -1728,16 +1740,16 @@ export default function RateCalculatorPage() {
   );
   const dotMatrixRates = rates?.dotMatrixBill;
   const dotMatrixBaseRate = Number(dotMatrixRates?.sizeRates?.[rDotMatrixSize]?.[rDotMatrixGsm] ?? 0);
-  const dotMatrixCarbonRate = rCarbonCopy ? Number(dotMatrixRates?.carbonCopyExtraPerBook ?? 8) : 0;
-  const dotMatrixMult = rMult !== "" ? rMult : (dotMatrixRates?.multiplier ?? 1.67);
+  const dotMatrixCarbonRate = rCarbonCopy ? Number(dotMatrixRates?.carbonCopyExtraPerBook ?? 0) : 0;
+  const dotMatrixMult = rMult !== "" ? rMult : (dotMatrixRates?.multiplier ?? 0);
   const dotMatrixPreviewPerBook = (dotMatrixBaseRate + dotMatrixCarbonRate) * dotMatrixMult;
   const keychainRates = rates?.keychain;
   const keychainBaseRate = Number(keychainRates?.numberRates?.[rKeychainNumber] ?? 0);
-  const keychainMult = rMult !== "" ? rMult : (keychainRates?.multiplier ?? 1.67);
+  const keychainMult = rMult !== "" ? rMult : (keychainRates?.multiplier ?? 0);
   const keychainPreviewPerPiece = keychainBaseRate * keychainMult;
   const penRates = rates?.pen;
   const penBaseRate = Number(penRates?.numberRates?.[rPenNumber] ?? 0);
-  const penMult = rMult !== "" ? rMult : (penRates?.multiplier ?? 1.67);
+  const penMult = rMult !== "" ? rMult : (penRates?.multiplier ?? 0);
   const penPreviewPerPiece = penBaseRate * penMult;
 
   return (
@@ -1998,14 +2010,14 @@ export default function RateCalculatorPage() {
                       <Field label="Clip">
                         <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
                           <input type="checkbox" checked={rPpClip} onChange={e => setRPpClip(e.target.checked)} />
-                          Add clip{isAdmin && ` (+Rs.${(ppRates?.clip ?? 1.25).toFixed(2)})`}
+                          Add clip{isAdmin && ` (+Rs.${(ppRates?.clip ?? 0).toFixed(2)})`}
                         </label>
                       </Field>
                       <Field label="Pocket">
                         <Select value={rPpPocketSides} onChange={e => setRPpPocketSides(+e.target.value)}>
                           <option value={0}>No Pocket</option>
-                          <option value={1}>{isAdmin ? "Yes - 1 Side (+Rs.2.50)" : "Yes - 1 Side"}</option>
-                          <option value={2}>{isAdmin ? "Yes - 2 Side (+Rs.5.00)" : "Yes - 2 Side"}</option>
+                          <option value={1}>{isAdmin ? `Yes - 1 Side (+Rs.${Number(ppRates?.pocketOneSide ?? 0).toFixed(2)})` : "Yes - 1 Side"}</option>
+                          <option value={2}>{isAdmin ? `Yes - 2 Side (+Rs.${(2 * Number(ppRates?.pocketOneSide ?? 0)).toFixed(2)})` : "Yes - 2 Side"}</option>
                         </Select>
                       </Field>
                     </div>
@@ -2044,7 +2056,7 @@ export default function RateCalculatorPage() {
                       </Field>
                       <Field label="Bag Size">
                         <Select value={rNonWovenSize} onChange={e => setRNonWovenSize(e.target.value)}>
-                          {Object.keys(nonWovenRates?.bagsPerKg ?? { "9x12": 60, "10x14": 50, "12x15": 40, "12x18": 35, "16x21": 25 }).map(size => (
+                          {Object.keys(nonWovenRates?.bagsPerKg ?? { "9x12": 0, "10x14": 0, "12x15": 0, "12x18": 0, "16x21": 0 }).map(size => (
                             <option key={size} value={size}>{size}</option>
                           ))}
                         </Select>
@@ -2052,7 +2064,7 @@ export default function RateCalculatorPage() {
                       <Field label="Printing">
                         <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
                           <option value="single">Single Color</option>
-                          <option value="multicolor">{isAdmin ? `Multicolor (+₹${nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)` : "Multicolor"}</option>
+                          <option value="multicolor">{isAdmin ? `Multicolor (+₹${nonWovenRates?.multicolorExtraPerBag ?? 0}/bag)` : "Multicolor"}</option>
                         </Select>
                       </Field>
                     </div>
@@ -2111,7 +2123,7 @@ export default function RateCalculatorPage() {
                     </div>
                     {isAdmin && (
                       <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                        Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 120}/kg</strong> (Rates tab) · 2 sides fabric = 2 × L × H × GSM × rate ÷ 1550000
+                        Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 0}/kg</strong> (Rates tab) · 2 sides fabric = 2 × L × H × GSM × rate ÷ 1550000
                         {" "}+ Gazzette = (wall + 1.5) × (2H + L) × wall GSM × rate ÷ 1550000 + stitching + printing slab + cutting &amp; wastage → × multiplier. Click Calculate for the breakdown.
                       </div>
                     )}
@@ -2163,7 +2175,7 @@ export default function RateCalculatorPage() {
                       </Field>
                       <Field label="Keychain Number">
                         <Select value={rKeychainNumber} onChange={e => setRKeychainNumber(e.target.value)}>
-                          {Object.keys(keychainRates?.numberRates ?? { KC1: 12, KC2: 14, KC3: 16, KC4: 18, KC5: 20 }).map(number => (
+                          {Object.keys(keychainRates?.numberRates ?? { KC1: 0, KC2: 0, KC3: 0, KC4: 0, KC5: 0 }).map(number => (
                             <option key={number} value={number}>{number}</option>
                           ))}
                         </Select>
@@ -2183,7 +2195,7 @@ export default function RateCalculatorPage() {
                       </Field>
                       <Field label="Pen Number">
                         <Select value={rPenNumber} onChange={e => setRPenNumber(e.target.value)}>
-                          {Object.keys(penRates?.numberRates ?? { PEN1: 6, PEN2: 7, PEN3: 8, PEN4: 9, PEN5: 10 }).map(number => (
+                          {Object.keys(penRates?.numberRates ?? { PEN1: 0, PEN2: 0, PEN3: 0, PEN4: 0, PEN5: 0 }).map(number => (
                             <option key={number} value={number}>{number}</option>
                           ))}
                         </Select>
@@ -2243,7 +2255,7 @@ export default function RateCalculatorPage() {
                         <Field label="Window">
                           <Select value={rWindow ? "yes" : "no"} onChange={e => setRWindow(e.target.value === "yes")}>
                             <option value="no">No</option>
-                            <option value="yes">{isAdmin ? "Yes (+₹200/1000)" : "Yes"}</option>
+                            <option value="yes">{isAdmin ? `Yes (+₹${Math.round(Number(rates?.envelopeWindow ?? 0) * 1000)}/1000)` : "Yes"}</option>
                           </Select>
                         </Field>
                       )}
@@ -2259,7 +2271,7 @@ export default function RateCalculatorPage() {
                         </Field>
                       )}
                       {rProduct === "file" && (
-                        <Field label={isAdmin ? `File Clip (+₹${rates?.fileClip ?? 1}/file)` : "File Clip"}>
+                        <Field label={isAdmin ? `File Clip (+₹${rates?.fileClip ?? 0}/file)` : "File Clip"}>
                           <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
                             <input type="checkbox" checked={rFileClip} onChange={e => setRFileClip(e.target.checked)} />
                             Add clip
@@ -2267,7 +2279,7 @@ export default function RateCalculatorPage() {
                         </Field>
                       )}
                       {rProduct === "file" && (
-                        <Field label={isAdmin ? `Pocket (+₹${rates?.filePocket ?? 2.2}/file)` : "Pocket"}>
+                        <Field label={isAdmin ? `Pocket (+₹${rates?.filePocket ?? 0}/file)` : "Pocket"}>
                           <Select value={rFilePocket ? "yes" : "no"} onChange={e => setRFilePocket(e.target.value === "yes")}>
                             <option value="no">No</option>
                             <option value="yes">Yes</option>
@@ -2300,7 +2312,7 @@ export default function RateCalculatorPage() {
                   {!isAdmin ? null : rProduct === "sticker" ? (
                     <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
                       <span className="font-semibold">Auto:</span> cost {fmt(stickerSelectedCost)} → ×{stickerAutoMultiplier}
-                      <span className="block text-[10px] text-amber-600">Under 500=4 · 500-1000=3 · 1000-3000=2 · 3000+=1.67</span>
+                      <span className="block text-[10px] text-amber-600">{stickerSlabsText(rates?.sticker)}</span>
                     </div>
                   ) : (
                     <Field label={`Multiplier (×) — ${multHint}`}>
@@ -2458,7 +2470,7 @@ export default function RateCalculatorPage() {
                       </Field>
                     </div>
                     <p className="text-xs text-slate-400 pb-1">
-                      cost ₹6,100 × {rates.multiplier ?? 1.67} = ₹{(6100 * (rates.multiplier ?? 1.67)).toFixed(0)}
+                      cost ₹6,100 × {rates.multiplier ?? ""} = ₹{(6100 * (rates.multiplier ?? 0)).toFixed(0)}
                     </p>
                   </div>
                 </Card>
@@ -2471,10 +2483,10 @@ export default function RateCalculatorPage() {
                       <Input type="number" value={rates.punch ?? ""} onChange={e => updateRate("punch", +e.target.value)} />
                     </Field>
                     <Field label="File Clip (₹/file)">
-                      <Input type="number" step="0.01" value={rates.fileClip ?? 1} onChange={e => updateRate("fileClip", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.fileClip ?? ""} onChange={e => updateRate("fileClip", +e.target.value)} />
                     </Field>
                     <Field label="File Pocket (₹/file)">
-                      <Input type="number" step="0.01" value={rates.filePocket ?? 2.2} onChange={e => updateRate("filePocket", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.filePocket ?? ""} onChange={e => updateRate("filePocket", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>
@@ -2543,7 +2555,7 @@ export default function RateCalculatorPage() {
                     <Field label="Window Cutting (₹/envelope)">
                       <Input type="number" step="0.01" value={rates.envelopeWindow ?? ""} onChange={e => updateRate("envelopeWindow", +e.target.value)} />
                     </Field>
-                    <p className="text-[10px] text-slate-400 mt-1">Default ₹0.20/pc (₹200 per 1,000 envelopes)</p>
+                    <p className="text-[10px] text-slate-400 mt-1">₹ per envelope (₹{Math.round(Number(rates.envelopeWindow ?? 0) * 1000)} per 1,000 envelopes)</p>
                   </div>
                   <DynamicRateSection
                     data={rates.envelope ?? {}}
@@ -2561,16 +2573,16 @@ export default function RateCalculatorPage() {
                   <p className="text-[10px] text-slate-400 mb-2">Base costs by qty tier. Extras applied per file before multiplier.</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <Field label="GST Extra (%)">
-                      <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? 18} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.ppFiles?.gstPct ?? ""} onChange={e => updateRate("ppFiles.gstPct", +e.target.value)} />
                     </Field>
                     <Field label="Clip Extra (₹/file)">
-                      <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? 1.25} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.ppFiles?.clip ?? ""} onChange={e => updateRate("ppFiles.clip", +e.target.value)} />
                     </Field>
                     <Field label="Pocket Extra (₹/side)">
-                      <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? 2.5} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.ppFiles?.pocketOneSide ?? ""} onChange={e => updateRate("ppFiles.pocketOneSide", +e.target.value)} />
                     </Field>
                     <Field label="PP File Multiplier (×)">
-                      <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? 1.67} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.ppFiles?.multiplier ?? ""} onChange={e => updateRate("ppFiles.multiplier", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>
@@ -2578,22 +2590,22 @@ export default function RateCalculatorPage() {
                   <p className="text-[10px] text-slate-400 mb-2">Fabric cost is weight-based: qty ÷ Bags per KG (by size) × Fabric Rate, plus a flat printing charge per bag and plate cost.</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                     <Field label="Selling Multiplier (×)">
-                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? 1.67} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multiplier ?? ""} onChange={e => updateRate("nonWovenBag.multiplier", +e.target.value)} />
                     </Field>
                     <Field label="Fabric Rate (₹/kg)">
-                      <Input type="number" step="0.01" value={rates.nonWovenBag?.ratePerKg ?? 120} onChange={e => updateRate("nonWovenBag.ratePerKg", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.ratePerKg ?? ""} onChange={e => updateRate("nonWovenBag.ratePerKg", +e.target.value)} />
                     </Field>
                     <Field label="Printing Charge (₹/bag)">
-                      <Input type="number" step="0.01" value={rates.nonWovenBag?.printingCostPerBag ?? 1} onChange={e => updateRate("nonWovenBag.printingCostPerBag", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.printingCostPerBag ?? ""} onChange={e => updateRate("nonWovenBag.printingCostPerBag", +e.target.value)} />
                     </Field>
                     <Field label="Multicolor Extra (₹/bag)">
-                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? 2} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? ""} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
                     </Field>
                     <Field label="Per Plate Rate (₹)">
-                      <Input type="number" step="1" value={rates.nonWovenBag?.perPlateRate ?? 500} onChange={e => updateRate("nonWovenBag.perPlateRate", +e.target.value)} />
+                      <Input type="number" step="1" value={rates.nonWovenBag?.perPlateRate ?? ""} onChange={e => updateRate("nonWovenBag.perPlateRate", +e.target.value)} />
                     </Field>
                     <Field label="Multicolor Per Plate Rate (₹)">
-                      <Input type="number" step="1" value={rates.nonWovenBag?.multicolorPerPlateRate ?? 1000} onChange={e => updateRate("nonWovenBag.multicolorPerPlateRate", +e.target.value)} />
+                      <Input type="number" step="1" value={rates.nonWovenBag?.multicolorPerPlateRate ?? ""} onChange={e => updateRate("nonWovenBag.multicolorPerPlateRate", +e.target.value)} />
                     </Field>
                   </div>
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Bags per KG (qty of bags = 1kg, by size)</p>
@@ -2610,10 +2622,10 @@ export default function RateCalculatorPage() {
                   <p className="text-[10px] text-slate-400 mb-2">Fabric cost = area (sq in) × GSM × Fabric Rate ÷ 1550000. Stitching, printing slabs and cutting &amp; wastage are fixed per bag.</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <Field label="Handle Bag Fabric Rate (₹/kg)">
-                      <Input type="number" step="0.01" value={rates.handleBag?.fabricRatePerKg ?? 120} onChange={e => updateRate("handleBag.fabricRatePerKg", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.handleBag?.fabricRatePerKg ?? ""} onChange={e => updateRate("handleBag.fabricRatePerKg", +e.target.value)} />
                     </Field>
                     <Field label="Selling Multiplier (×)">
-                      <Input type="number" step="0.01" value={rates.handleBag?.multiplier ?? 1.67} onChange={e => updateRate("handleBag.multiplier", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.handleBag?.multiplier ?? ""} onChange={e => updateRate("handleBag.multiplier", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>
@@ -2621,10 +2633,10 @@ export default function RateCalculatorPage() {
                   <p className="text-[10px] text-slate-400 mb-2">Small = 10.5×16 X-ray · Big = 16×21 CT scan. Base costs by qty tier.</p>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="GST Extra (%)">
-                      <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? 18} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.diagnosticBags?.gstPct ?? ""} onChange={e => updateRate("diagnosticBags.gstPct", +e.target.value)} />
                     </Field>
                     <Field label="Bag Multiplier (×)">
-                      <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? 1.67} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.diagnosticBags?.multiplier ?? ""} onChange={e => updateRate("diagnosticBags.multiplier", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>
@@ -2633,29 +2645,29 @@ export default function RateCalculatorPage() {
               {/* ── CATEGORY: Stationery & Gifts ── */}
               <AccordionCategory title="Stationery & Gifts" icon="🖊️" defaultOpen={false}>
                 <Card title="Stickers">
-                  <p className="text-[10px] text-slate-400 mb-2">Half cut % added to base cost before auto multiplier (auto: under 500=×4, 500-1k=×3, 1k-3k=×2, 3k+=×1.67)</p>
+                  <p className="text-[10px] text-slate-400 mb-2">Half cut % added to base cost before auto multiplier (auto: {stickerSlabsText(rates.sticker)})</p>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Half Cutting Extra (%)">
-                      <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? 30} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.sticker?.halfCutPct ?? ""} onChange={e => updateRate("sticker.halfCutPct", +e.target.value)} />
                     </Field>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-3 mb-2">Die Cutting (shaped stickers): die = printed block + 1" margin on all 4 sides, priced per sq in, plus a punching charge per 1000 sheets.</p>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Die Rate (₹/sq in)">
-                      <Input type="number" step="0.01" value={rates.sticker?.dieRatePerSqIn ?? 6} onChange={e => updateRate("sticker.dieRatePerSqIn", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.sticker?.dieRatePerSqIn ?? ""} onChange={e => updateRate("sticker.dieRatePerSqIn", +e.target.value)} />
                     </Field>
                     <Field label="Punching Rate (₹/1000 sheets)">
-                      <Input type="number" step="0.01" value={rates.sticker?.punchingRatePer1000 ?? 500} onChange={e => updateRate("sticker.punchingRatePer1000", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.sticker?.punchingRatePer1000 ?? ""} onChange={e => updateRate("sticker.punchingRatePer1000", +e.target.value)} />
                     </Field>
                   </div>
                 </Card>
                 <Card title="Dot Matrix Bills">
                   <div className="grid grid-cols-2 gap-3 mb-2">
                     <Field label="Multiplier (×)">
-                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? 1.67} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.multiplier ?? ""} onChange={e => updateRate("dotMatrixBill.multiplier", +e.target.value)} />
                     </Field>
                     <Field label="Carbon Copy Extra (₹/book)">
-                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? 8} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
+                      <Input type="number" step="0.01" value={rates.dotMatrixBill?.carbonCopyExtraPerBook ?? ""} onChange={e => updateRate("dotMatrixBill.carbonCopyExtraPerBook", +e.target.value)} />
                     </Field>
                   </div>
                   <div className="space-y-1.5">
@@ -2678,7 +2690,7 @@ export default function RateCalculatorPage() {
                   <div className="mb-2">
                     <Field label="Multiplier (×)">
                       <div className="w-24">
-                        <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? 1.67} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
+                        <Input type="number" step="0.01" value={rates.keychain?.multiplier ?? ""} onChange={e => updateRate("keychain.multiplier", +e.target.value)} />
                       </div>
                     </Field>
                   </div>
@@ -2694,7 +2706,7 @@ export default function RateCalculatorPage() {
                   <div className="mb-2">
                     <Field label="Multiplier (×)">
                       <div className="w-24">
-                        <Input type="number" step="0.01" value={rates.pen?.multiplier ?? 1.67} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
+                        <Input type="number" step="0.01" value={rates.pen?.multiplier ?? ""} onChange={e => updateRate("pen.multiplier", +e.target.value)} />
                       </div>
                     </Field>
                   </div>

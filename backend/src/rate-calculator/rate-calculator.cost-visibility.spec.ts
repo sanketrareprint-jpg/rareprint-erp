@@ -34,7 +34,7 @@ function makeService(extraPrisma: any = {}) {
 }
 
 const SALES = 'SALES_AGENT';
-const MONEY_KEYS = ['subtotal', 'multiplier', 'clubbing', 'plainSubtotal', 'nonTearableSubtotal', 'plainSheetRate', 'clubbingCost', 'plainMultiplier', 'dieRatePerSqIn'];
+const MONEY_KEYS = ['subtotal', 'multiplier', 'clubbing', 'plainSubtotal', 'nonTearableSubtotal', 'plainSheetRate', 'clubbingCost', 'plainMultiplier', 'dieRatePerSqIn', 'clubbingRatePerSqIn', 'clubbingFixedCost'];
 
 describe('Rate Calc cost visibility', () => {
   it('cost roles are exactly ADMIN, INHOUSE, ACCOUNTS', () => {
@@ -113,5 +113,34 @@ describe('Rate Calc cost visibility', () => {
     expect(() => ctrl.calcSticker({}, sales)).toThrow(ForbiddenException);
     ctrl.saveRates({}, admin); ctrl.getClubbingRates(admin); ctrl.saveClubbingRates({}, admin); ctrl.deleteHistory('x', admin); ctrl.calcSticker({}, admin);
     for (const fn of Object.values(svc)) expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Sticker prices must not change when their rates moved from code into
+// DEFAULT_RATES (so they are no longer shipped in the frontend bundle).
+describe('Sticker pricing (rates from master rates)', () => {
+  it('2,000 × 2×3 in: plain ₹2,080, non tearable ₹3,040, clubbing ₹1,710', async () => {
+    const r: any = await makeService().calcReverse({ product: 'sticker', qty: 2000, stickerW: 2, stickerH: 3 });
+    const s = r.sticker;
+    expect(s.sheetsNeeded).toBe(80);                      // 25 per sheet
+    expect(s.plainSubtotal).toBeCloseTo(80 * 13, 6);
+    expect(s.plainMultiplier).toBe(2);                    // 1,040 is in the 1,000–3,000 slab
+    expect(s.plainTotal).toBeCloseTo(2080, 6);
+    expect(s.nonTearableTotal).toBeCloseTo(3040, 6);
+    expect(s.clubbingCost).toBeCloseTo(12 * 1000 * 0.035 + 150, 6);
+    expect(s.clubbingMultiplier).toBe(3);                 // 570 is in the 500–1,000 slab
+    expect(s.clubbingTotal).toBeCloseTo(1710, 6);
+    expect(r.total).toBeCloseTo(2080, 6);
+  });
+
+  it('multiplier slabs: <500 ×4, <1000 ×3, <3000 ×2, else ×1.67', async () => {
+    const svc: any = makeService();
+    const m = async (sheets: number) => (await svc.calcReverse({ product: 'sticker', qty: sheets * 25, stickerW: 2, stickerH: 3 })).multiplier;
+    expect(await m(38)).toBe(4);     // 494
+    expect(await m(39)).toBe(3);     // 507
+    expect(await m(76)).toBe(3);     // 988
+    expect(await m(77)).toBe(2);     // 1,001
+    expect(await m(230)).toBe(2);    // 2,990
+    expect(await m(231)).toBe(1.67); // 3,003
   });
 });
