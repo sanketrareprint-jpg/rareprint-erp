@@ -24,6 +24,10 @@
  * RULE 10 — Dialer settings: no WhatsApp campaign for WRONG_NUMBER; blank
  *   campaign = send nothing; outcome templates get exactly 3 variables
  *   (customer name, agent name, agent phone).
+ * RULE 12 — A pending follow-up is skipped once a call to the same number
+ *   (through any Lead/contact row with that phone) answered it: a conclusive
+ *   call after it fell due, or Not interested after it was created. Busy /
+ *   not answered never skip it; a follow-up a call created survives that call.
  *
  * If these tests fail after a code change, a dialer rule has been broken.
  */
@@ -41,6 +45,7 @@ import {
   agentStatsSince,
   formatDuration,
   isConclusiveOutcome,
+  isFollowUpAnsweredByCall,
   istDayStart,
   nextStatusForOutcome,
   normalizeDialPhone,
@@ -96,6 +101,41 @@ describe('dialer rules — follow-ups (RULES 2, 3)', () => {
     expect(wantsRecycleFollowUp(DialerOutcome.NOT_INTERESTED)).toBe(true);
     expect(wantsRecycleFollowUp(DialerOutcome.WRONG_NUMBER)).toBe(false);
     expect(wantsRecycleFollowUp(DialerOutcome.CALLBACK)).toBe(false);
+  });
+});
+
+describe('dialer rules — follow-up already answered by a call to the same number (RULE 12)', () => {
+  const t = (iso: string) => new Date(iso);
+  // A CSV import's Day 3 follow-up: created 8 Oct, due 11 Oct.
+  const importFollowUp = { createdAt: t('2026-10-08T03:31:00Z'), scheduledAt: t('2026-10-11T03:31:00Z') };
+  const call = (outcome: DialerOutcome, at: string) => ({ outcome, startedAt: t(at), createdAt: t(at) });
+
+  it('a conclusive call after the follow-up fell due answers it (other copy of the same number)', () => {
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.INTERESTED, '2026-10-11T05:00:00Z'))).toBe(true);
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.CALLBACK, '2026-10-11T05:00:00Z'))).toBe(true);
+  });
+
+  it('busy / not answered never answer a follow-up — the number is retried', () => {
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.BUSY, '2026-10-12T05:00:00Z'))).toBe(false);
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.NOT_ANSWERED, '2026-10-12T05:00:00Z'))).toBe(false);
+  });
+
+  it('NOT_INTERESTED after the follow-up was planned answers it, even before it falls due', () => {
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.NOT_INTERESTED, '2026-10-09T04:50:00Z'))).toBe(true);
+  });
+
+  it('an interested / callback call before the due date keeps the planned follow-up', () => {
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.INTERESTED, '2026-10-09T04:50:00Z'))).toBe(false);
+    expect(isFollowUpAnsweredByCall(importFollowUp, call(DialerOutcome.CALLBACK, '2026-10-09T04:50:00Z'))).toBe(false);
+  });
+
+  it('the 30-day recycle / callback follow-up created by a call is never cancelled by that same call', () => {
+    const niCall = { outcome: DialerOutcome.NOT_INTERESTED, startedAt: t('2026-10-09T04:49:00Z'), createdAt: t('2026-10-09T04:50:00Z') };
+    const recycle = { createdAt: t('2026-10-09T04:50:00Z'), scheduledAt: t('2026-11-08T04:50:00Z') };
+    expect(isFollowUpAnsweredByCall(recycle, niCall)).toBe(false);
+    const cbCall = { outcome: DialerOutcome.CALLBACK, startedAt: t('2026-10-09T04:49:00Z'), createdAt: t('2026-10-09T04:50:00Z') };
+    const callback = { createdAt: t('2026-10-09T04:50:00Z'), scheduledAt: t('2026-10-10T06:00:00Z') };
+    expect(isFollowUpAnsweredByCall(callback, cbCall)).toBe(false);
   });
 });
 

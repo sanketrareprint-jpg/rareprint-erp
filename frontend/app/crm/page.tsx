@@ -1482,6 +1482,7 @@ function CrmPageContent() {
                 <div className={`rounded-xl p-4 border text-sm ${importResult.errors?.length > 0 ? "bg-amber-50 border-amber-200" : "bg-green-50 border-green-200"}`}>
                   <p className="font-bold mb-1">Import complete</p>
                   <p>Imported: <strong>{importResult.success}</strong></p>
+                  {importResult.alreadyExists > 0 && <p>Already in your leads (not added again): <strong>{importResult.alreadyExists}</strong></p>}
                   {importResult.duplicates > 0 && <p>Duplicates: <strong>{importResult.duplicates}</strong></p>}
                   {importResult.skipped > 0 && <p>Skipped: <strong>{importResult.skipped}</strong></p>}
                   {importResult.errors?.slice(0, 5).map((e: string, i: number) => <p key={i} className="text-red-600 text-xs mt-1">{e}</p>)}

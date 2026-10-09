@@ -110,6 +110,24 @@ export function isConclusiveOutcome(outcome: DialerOutcome): boolean {
   return outcome !== DialerOutcome.NOT_ANSWERED && outcome !== DialerOutcome.BUSY;
 }
 
+/**
+ * Whether a pending follow-up is already answered by a dialer call to the
+ * same number — possibly made through a different Lead row with that phone
+ * (a CSV imported twice), so the call never closed this follow-up itself:
+ *   - a conclusive call after the follow-up fell due, or
+ *   - a NOT_INTERESTED call after the follow-up was created (the CSV import's
+ *     Day 3/7/14/30 follow-ups on a lead that already said no).
+ * Follow-ups created by a call (Callback, 30-day recycle) are created after
+ * that call is saved, so the call that created them never cancels them.
+ */
+export function isFollowUpAnsweredByCall(
+  followUp: { scheduledAt: Date; createdAt: Date },
+  call: { outcome: DialerOutcome; startedAt: Date; createdAt: Date },
+): boolean {
+  if (isConclusiveOutcome(call.outcome) && call.startedAt >= followUp.scheduledAt) return true;
+  return call.outcome === DialerOutcome.NOT_INTERESTED && call.createdAt > followUp.createdAt;
+}
+
 /** NOT_INTERESTED gets the same 30-day recycle check as CrmService.updateStatus(LOST). WRONG_NUMBER never does. */
 export function wantsRecycleFollowUp(outcome: DialerOutcome): boolean {
   return outcome === DialerOutcome.NOT_INTERESTED;

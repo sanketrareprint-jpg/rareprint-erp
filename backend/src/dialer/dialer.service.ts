@@ -34,6 +34,7 @@ import {
   RECENT_CALL_SKIP_MINUTES,
   agentStatsSince,
   isDeskResponseCurrent,
+  isFollowUpAnsweredByCall,
   isEndCallRequestCurrent,
   describeReplyProducts,
   NI_LIST_REASONS,
@@ -188,7 +189,7 @@ export class DialerService {
         orderBy: { scheduledAt: order },
         skip,
         take: PAGE_SIZE,
-        select: { id: true, scheduledAt: true, lead: { select: { id: true, phone: true } } },
+        select: { id: true, scheduledAt: true, createdAt: true, lead: { select: { id: true, phone: true } } },
       }),
       this.prisma.importedContactFollowUp.findMany({
         where: {
@@ -199,27 +200,46 @@ export class DialerService {
         orderBy: { scheduledAt: order },
         skip,
         take: PAGE_SIZE,
-        select: { id: true, scheduledAt: true, contact: { select: { id: true, phone: true } } },
+        select: { id: true, scheduledAt: true, createdAt: true, contact: { select: { id: true, phone: true } } },
       }),
     ]);
 
+    // Follow-ups already answered by a call to the same number (through any
+    // record with that phone) are left out — see isFollowUpAnsweredByCall.
+    const phones = [
+      ...leadFollowUps.map((f) => normalizeDialPhone(f.lead.phone)),
+      ...contactFollowUps.map((f) => normalizeDialPhone(f.contact.phone)),
+    ];
+    const calls = phones.length
+      ? await this.prisma.dialerCall.findMany({
+          where: { phone: { in: [...new Set(phones)] }, outcome: { notIn: [DialerOutcome.BUSY, DialerOutcome.NOT_ANSWERED] } },
+          select: { phone: true, outcome: true, startedAt: true, createdAt: true },
+        })
+      : [];
+    const isOpen = (phone: string, followUp: { scheduledAt: Date; createdAt: Date }) =>
+      !calls.some((call) => call.phone === phone && isFollowUpAnsweredByCall(followUp, call));
+
     const items: Candidate[] = [
-      ...leadFollowUps.map((f) => ({
-        source,
-        phone: normalizeDialPhone(f.lead.phone),
-        leadId: f.lead.id,
-        importedContactId: null,
-        followUpId: f.id,
-        scheduledAt: f.scheduledAt,
-      })),
-      ...contactFollowUps.map((f) => ({
-        source,
-        phone: normalizeDialPhone(f.contact.phone),
-        leadId: null,
-        importedContactId: f.contact.id,
-        followUpId: f.id,
-        scheduledAt: f.scheduledAt,
-      })),
+      ...leadFollowUps
+        .filter((f) => isOpen(normalizeDialPhone(f.lead.phone), f))
+        .map((f) => ({
+          source,
+          phone: normalizeDialPhone(f.lead.phone),
+          leadId: f.lead.id,
+          importedContactId: null,
+          followUpId: f.id,
+          scheduledAt: f.scheduledAt,
+        })),
+      ...contactFollowUps
+        .filter((f) => isOpen(normalizeDialPhone(f.contact.phone), f))
+        .map((f) => ({
+          source,
+          phone: normalizeDialPhone(f.contact.phone),
+          leadId: null,
+          importedContactId: f.contact.id,
+          followUpId: f.id,
+          scheduledAt: f.scheduledAt,
+        })),
     ].sort((a, b) =>
       order === 'asc'
         ? a.scheduledAt.getTime() - b.scheduledAt.getTime()
@@ -229,20 +249,28 @@ export class DialerService {
     return { items, more: leadFollowUps.length === PAGE_SIZE || contactFollowUps.length === PAGE_SIZE };
   }
 
-  /** Tier 2: the agent's NEW leads with no call logged anywhere. */
+  /**
+   * Tier 2: the agent's NEW leads whose number has no call logged anywhere.
+   * Checked per phone, not per Lead row: the same number is often on several
+   * Lead rows (a CSV imported twice, or given to another seller), and a call
+   * on any of them means the number is no longer fresh.
+   */
   private async freshLeadCandidates(agentId: string, skip: number) {
-    const leads = await this.prisma.lead.findMany({
-      where: {
-        agentId,
-        status: LeadStatus.NEW,
-        activities: { none: { type: { in: CALL_ACTIVITY_TYPES } } },
-        dialerCalls: { none: {} },
-      },
-      orderBy: [{ isHot: 'desc' }, { score: 'desc' }, { createdAt: 'asc' }],
-      skip,
-      take: PAGE_SIZE,
-      select: { id: true, phone: true },
-    });
+    const leads = await this.prisma.$queryRaw<Array<{ id: string; phone: string }>>(Prisma.sql`
+      SELECT l."id", l."phone"
+      FROM "Lead" l
+      WHERE l."agentId" = ${agentId}
+        AND l."status"::text = ${LeadStatus.NEW}
+        AND NOT EXISTS (SELECT 1 FROM "DialerCall" dc WHERE dc."phone" = l."phone")
+        AND NOT EXISTS (
+          SELECT 1 FROM "LeadActivity" a
+          JOIN "Lead" same ON same."id" = a."leadId"
+          WHERE same."phone" = l."phone"
+            AND a."type"::text IN (${Prisma.join(CALL_ACTIVITY_TYPES)})
+        )
+      ORDER BY l."isHot" DESC, l."score" DESC, l."createdAt" ASC
+      OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
+    `);
     const items: Candidate[] = leads.map((l) => ({
       source: 'FRESH_LEAD',
       phone: normalizeDialPhone(l.phone),
@@ -268,14 +296,24 @@ export class DialerService {
       take: PAGE_SIZE,
       select: { id: true, phone: true },
     });
-    const called = contacts.length
-      ? await this.prisma.callLogRecord.findMany({
-          where: { agentId, phone: { in: contacts.map((c) => c.phone) } },
-          select: { phone: true },
-          distinct: ['phone'],
-        })
-      : [];
-    const calledPhones = new Set(called.map((c) => c.phone));
+    const phones = contacts.map((c) => c.phone);
+    // Also drop numbers already dialed under any other record (e.g. a Lead
+    // with the same phone) — `dialerCalls: none` above only covers this contact row.
+    const [called, dialed] = contacts.length
+      ? await Promise.all([
+          this.prisma.callLogRecord.findMany({
+            where: { agentId, phone: { in: phones } },
+            select: { phone: true },
+            distinct: ['phone'],
+          }),
+          this.prisma.dialerCall.findMany({
+            where: { phone: { in: phones } },
+            select: { phone: true },
+            distinct: ['phone'],
+          }),
+        ])
+      : [[], []];
+    const calledPhones = new Set([...called, ...dialed].map((c) => c.phone));
 
     const items: Candidate[] = contacts
       .filter((c) => !calledPhones.has(c.phone))

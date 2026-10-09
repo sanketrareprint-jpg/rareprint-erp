@@ -283,7 +283,13 @@ export class CrmService {
 
   // ─── CSV BULK IMPORT ───────────────────────────────────────────────────────
   async bulkImport(rows: any[], agentId: string) {
-    const results = { success: 0, skipped: 0, duplicates: 0, errors: [] as string[] };
+    const results = { success: 0, skipped: 0, duplicates: 0, alreadyExists: 0, errors: [] as string[] };
+
+    // Numbers this agent already has a Lead for. Re-uploading a file (or a
+    // number repeated inside it) must not create a second Lead for the same
+    // agent — each copy would be dialed again as a "new" lead.
+    const existingLeads = await this.prisma.lead.findMany({ where: { agentId }, select: { phone: true } });
+    const agentPhones = new Set(existingLeads.map((l) => l.phone));
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -295,6 +301,11 @@ export class CrmService {
 
       try {
         const phone = String(row.phone).replace(/\D/g, '').slice(-10);
+        if (agentPhones.has(phone)) {
+          results.alreadyExists++;
+          continue;
+        }
+        agentPhones.add(phone);
         const score = this._scoreLead(row);
 
         await this.prisma.lead.create({
