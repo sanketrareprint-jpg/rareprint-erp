@@ -37,7 +37,8 @@ interface LiveItem {
   lastNote: string | null;
   lockedAt: string;
   deskResponse: { outcome: DialerOutcome; note: string | null; callbackAt: string | null; submittedAt: string } | null;
-  recentCalls: Array<{ startedAt: string; outcome: DialerOutcome; note: string | null; durationSec: number; answered: boolean; agentName: string }>;
+  // Auto dialer calls + calls logged from the CRM, newest first (CRM calls have no dialer outcome).
+  callHistory?: Array<{ via: "DIALER" | "CRM"; at: string; outcome: DialerOutcome | null; note: string | null; durationSec: number | null; answered: boolean; agentName: string }>;
   agent: { name: string; phone: string };
 }
 
@@ -103,6 +104,7 @@ export function DialerDeskPopup() {
   if (!item) return null;
 
   const submitted = editing ? null : item.deskResponse;
+  const callHistory = item.callHistory ?? [];
   const rateList = settings?.rateLists.find((r) => r.id === rateListId) ?? null;
 
   const submit = async () => {
@@ -162,13 +164,13 @@ export function DialerDeskPopup() {
             {item.tags.map((t) => <span key={t} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{t}</span>)}
           </div>
         )}
-        {item.recentCalls.length > 0 && (
+        {callHistory.length > 0 && (
           <details className="rounded-lg border border-slate-200 px-3 py-2">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-600">Previous dialer calls ({item.recentCalls.length})</summary>
+            <summary className="cursor-pointer text-xs font-semibold text-slate-600">Previous calls ({callHistory.length})</summary>
             <ul className="mt-2 space-y-1 text-xs text-slate-700">
-              {item.recentCalls.map((c) => (
-                <li key={c.startedAt} className="break-words">
-                  {fmtDate(c.startedAt)} · {outcomeLabel(c.outcome)} · {c.agentName}{c.note ? ` — ${c.note}` : ""}
+              {callHistory.map((c) => (
+                <li key={`${c.via}-${c.at}`} className="break-words">
+                  {fmtDate(c.at)} · {c.outcome ? outcomeLabel(c.outcome) : c.answered ? "CRM: answered" : "CRM: not answered"} · {c.agentName}{c.note ? ` — ${c.note}` : ""}
                 </li>
               ))}
             </ul>
