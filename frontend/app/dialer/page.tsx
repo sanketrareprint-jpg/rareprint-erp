@@ -82,6 +82,7 @@ export default function DialerPage() {
   const [dialList, setDialList] = useState("ALL");
   const dialListRef = useRef("ALL");
   const [fromPc, setFromPc] = useState(false); // outcome being saved came from the PC popup
+  const [askList, setAskList] = useState(false); // "Which list to call?" shown before every Start
 
   // Refs mirror state for native listeners and timers.
   const phaseRef = useRef<Phase>("idle");
@@ -278,7 +279,22 @@ export default function DialerPage() {
     return () => clearInterval(t);
   }, [phase, callStartedAt]);
 
+  /** Start Dialing: check the phone is ready, then ask which list to call. */
+  const askToStart = () => {
+    setError("");
+    if (!perms?.allGranted) { setError("Allow all the permissions below first."); return; }
+    if (sims.length > 1 && !sims.some((s) => s.id === simIdRef.current)) { setError("Choose which SIM to call from first."); return; }
+    setAskList(true);
+  };
+
+  const chooseList = (value: string) => {
+    dialListRef.current = value;
+    setDialList(value);
+    try { localStorage.setItem(LIST_KEY, value); } catch { /* ignore */ }
+  };
+
   const start = async () => {
+    setAskList(false);
     setError("");
     if (!perms?.allGranted) { setError("Allow all the permissions below first."); return; }
     if (sims.length > 1 && !sims.some((s) => s.id === simIdRef.current)) { setError("Choose which SIM to call from first."); return; }
@@ -445,21 +461,13 @@ export default function DialerPage() {
           </section>
         )}
 
-        {/* Which list to dial */}
-        <section className="rounded-lg border p-3">
-          <label className="block text-sm">
-            <span className="font-semibold">List to call</span>
-            <select value={dialList} disabled={running}
-              onChange={(e) => {
-                dialListRef.current = e.target.value;
-                setDialList(e.target.value);
-                try { localStorage.setItem(LIST_KEY, e.target.value); } catch { /* ignore */ }
-              }}
-              className="mt-1 w-full rounded-lg border px-3 py-2 bg-white">
-              {DIAL_LISTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-            </select>
-          </label>
-        </section>
+        {/* Which list is being dialed (chosen in the prompt on Start Dialing) */}
+        {running && (
+          <section className="rounded-lg border p-3 text-sm">
+            <span className="text-slate-500">Calling list: </span>
+            <span className="font-semibold">{DIAL_LISTS.find((l) => l.value === dialList)?.label ?? dialList}</span>
+          </section>
+        )}
 
         {/* Admins: whose leads to dial */}
         {isAdmin && (
@@ -538,7 +546,7 @@ export default function DialerPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {!running && (
-              <button className="px-4 py-2 rounded-lg bg-green-600 text-white font-medium disabled:opacity-50" disabled={!!missingPerms} onClick={start}>
+              <button className="px-4 py-2 rounded-lg bg-green-600 text-white font-medium disabled:opacity-50" disabled={!!missingPerms} onClick={askToStart}>
                 Start Dialing
               </button>
             )}
@@ -550,6 +558,31 @@ export default function DialerPage() {
           </div>
         </section>
       </div>
+
+      {/* "Which list to call?" — asked on every Start Dialing. Portaled for the
+          same reason as the outcome screen below. */}
+      {askList && !running && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
+          <div className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-2xl p-4 space-y-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}>
+            <h2 className="text-lg font-bold text-slate-900">Which list do you want to call?</h2>
+            <select value={dialList} onChange={(e) => chooseList(e.target.value)}
+              className="w-full rounded-lg border px-3 py-3 bg-white text-sm">
+              {DIAL_LISTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setAskList(false)}
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-3 text-sm font-medium text-slate-700">
+                Cancel
+              </button>
+              <button type="button" onClick={start}
+                className="flex-1 rounded-lg bg-green-600 px-3 py-3 text-sm font-medium text-white">
+                Start calling
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Outcome screen — full-screen above the mobile topbar (z-9000). Portaled
           to <body>: on phones .erp-main is position:fixed, which makes its own

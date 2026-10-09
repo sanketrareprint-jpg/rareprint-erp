@@ -209,6 +209,7 @@ function CrmPageContent() {
   const [csvText, setCsvText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [importList, setImportList] = useState<"NEW" | "RESERVED">("NEW"); // which dialer list the CSV goes into
   const fileRef = useRef<HTMLInputElement>(null);
   const [sendingAisensy, setSendingAisensy] = useState<string | null>(null);
   const [deletingLead, setDeletingLead] = useState<string | null>(null);
@@ -676,7 +677,7 @@ function CrmPageContent() {
       });
       const res = await fetch(`${API}/crm/leads/bulk-import`, {
         method: "POST", headers: { ...getAuth(), "Content-Type": "application/json" },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, list: importList }),
       });
       const result = await res.json();
       setImportResult(result);
@@ -1474,6 +1475,20 @@ function CrmPageContent() {
                 <label className="text-xs font-semibold text-slate-600 block mb-1.5">Or paste CSV content</label>
                 <textarea value={csvText} onChange={(e) => setCsvText(e.target.value)} placeholder={CSV_SAMPLE} rows={5}
                   className="w-full border border-slate-200 rounded-lg text-xs px-3 py-2 font-mono focus:outline-none focus:border-blue-400 resize-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-600 block mb-1.5">Import into</label>
+                <div className="flex gap-2">
+                  {([["NEW", "New leads"], ["RESERVED", "Reserved leads"]] as const).map(([value, label]) => (
+                    <button key={value} type="button" onClick={() => setImportList(value)}
+                      className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium ${importList === value ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {importList === "RESERVED" && (
+                  <p className="text-xs text-slate-500 mt-1.5">The auto dialer calls reserved leads only after your new leads run out. No automatic follow-ups are scheduled for them.</p>
+                )}
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
                 Duplicate detection is automatic. Agents will be notified of shared contacts.

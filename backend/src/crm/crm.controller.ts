@@ -71,10 +71,10 @@ export class CrmController {
 
   @Post('leads/bulk-import')
   bulkImport(
-    @Body() body: { rows: any[] },
+    @Body() body: { rows: any[]; list?: string },
     @Req() req: Request & { user: JwtUser },
   ) {
-    return this.crmService.bulkImport(body.rows, req.user.id);
+    return this.crmService.bulkImport(body.rows, req.user.id, body.list);
   }
 
   @Patch('leads/:id/status')

@@ -9,6 +9,8 @@
 //                       Compliance: no call in the agent's imported call logs)
 //                       that have no Lead yet and haven't been dialed
 //   4. OLD_CALLBACK   — follow-ups that were due before today (most recent first)
+//   5. RESERVED_LEAD  — the agent's reserved leads (CRM import "Reserved leads"),
+//                       same rule as FRESH_LEAD, only once everything above is done
 // and always skips: numbers marked WRONG_NUMBER (forever), numbers dialed in
 // the last RECENT_CALL_SKIP_MINUTES by anyone, and numbers another agent is
 // currently dialing (DialerLock).
@@ -58,7 +60,7 @@ import {
 
 type DialerUser = { id: string; role: string };
 type QueueSource =
-  | 'FOLLOW_UP_DUE' | 'FRESH_LEAD' | 'NOT_CONTACTED' | 'OLD_CALLBACK'
+  | 'FOLLOW_UP_DUE' | 'FRESH_LEAD' | 'NOT_CONTACTED' | 'OLD_CALLBACK' | 'RESERVED_LEAD'
   | 'INTERESTED' | 'NOT_INTERESTED' | 'BUSY' | 'NOT_ANSWERED' | 'CALLBACK' // single-list dialing
   | 'NI_RATE' | 'NI_QUANTITY' | 'NI_TRUST' | 'NI_NO_REQUIREMENT'
   | 'LIVE'; // GET /dialer/live (the number the phone is on now)
@@ -125,12 +127,14 @@ export class DialerService {
 
     type Tier = (skip: number) => Promise<{ items: Candidate[]; more: boolean }>;
     const dueToday: Tier = (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip);
-    const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip);
+    const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, false);
+    const reservedLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, true);
     const notContacted: Tier = (skip) => this.notContactedCandidates(queueAgentId, skip);
     const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip);
     const tiersByList: Record<DialerList, Tier[]> = {
-      ALL: [dueToday, freshLeads, notContacted, olderFollowUps],
-      NEW_LEADS: [freshLeads],
+      ALL: [dueToday, freshLeads, notContacted, olderFollowUps, reservedLeads],
+      NEW_LEADS: [freshLeads, reservedLeads],
+      RESERVED_LEADS: [reservedLeads],
       NOT_CONTACTED: [notContacted],
       FOLLOW_UPS: [dueToday, olderFollowUps],
       INTERESTED: [(skip) => this.statusCandidates('INTERESTED', LeadStatus.INTERESTED, queueAgentId, skip)],
@@ -252,17 +256,19 @@ export class DialerService {
   }
 
   /**
-   * Tier 2: the agent's NEW leads whose number has no call logged anywhere.
+   * Tier 2 (reserved = false) / tier 5 (reserved = true): the agent's NEW
+   * leads whose number has no call logged anywhere.
    * Checked per phone, not per Lead row: the same number is often on several
    * Lead rows (a CSV imported twice, or given to another seller), and a call
    * on any of them means the number is no longer fresh.
    */
-  private async freshLeadCandidates(agentId: string, skip: number) {
+  private async freshLeadCandidates(agentId: string, skip: number, reserved: boolean) {
     const leads = await this.prisma.$queryRaw<Array<{ id: string; phone: string }>>(Prisma.sql`
       SELECT l."id", l."phone"
       FROM "Lead" l
       WHERE l."agentId" = ${agentId}
         AND l."status"::text = ${LeadStatus.NEW}
+        AND l."isReserved" = ${reserved}
         AND NOT EXISTS (SELECT 1 FROM "DialerCall" dc WHERE dc."phone" = l."phone")
         AND NOT EXISTS (
           SELECT 1 FROM "LeadActivity" a
@@ -274,7 +280,7 @@ export class DialerService {
       OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
     `);
     const items: Candidate[] = leads.map((l) => ({
-      source: 'FRESH_LEAD',
+      source: reserved ? 'RESERVED_LEAD' : 'FRESH_LEAD',
       phone: normalizeDialPhone(l.phone),
       leadId: l.id,
       importedContactId: null,
@@ -762,7 +768,7 @@ export class DialerService {
    *     (the CRM's log-call has no interested/not-interested choice).
    * Current snapshot (not period-filtered), Leads + Not Contacted contacts that
    * have no Lead yet (same as the dialer queue):
-   *   - newLeads    — Leads in NEW status
+   *   - newLeads    — Leads in NEW status, not reserved
    *   - pipeline    — CONTACTED / INTERESTED / QUOTED
    *   - followUpsDue — customers (not WON/LOST) with a pending follow-up due by end of today
    */
@@ -795,7 +801,7 @@ export class DialerService {
         _count: { _all: true },
       }),
       this.prisma.lead.groupBy({
-        by: ['agentId', 'status'],
+        by: ['agentId', 'status', 'isReserved'],
         where: { ...onlyMe, status: { in: [LeadStatus.NEW, ...pipelineStatuses] } },
         _count: { _all: true },
       }),
@@ -863,7 +869,9 @@ export class DialerService {
       else r.answeredOther += g._count._all;
     }
     for (const g of leadsByStatus) {
-      if (g.status === LeadStatus.NEW) row(g.agentId).newLeads += g._count._all;
+      // Reserved leads still in NEW aren't counted as new leads (the dialer
+      // calls them only after new leads run out); once called they count in pipeline.
+      if (g.status === LeadStatus.NEW) { if (!g.isReserved) row(g.agentId).newLeads += g._count._all; }
       else row(g.agentId).pipeline += g._count._all;
     }
     for (const g of contactsInPipeline) if (g.agentId) row(g.agentId).pipeline += g._count._all;

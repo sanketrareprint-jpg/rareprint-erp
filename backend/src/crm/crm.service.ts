@@ -268,7 +268,8 @@ export class CrmService {
         status: { in: ['NEW', 'CONTACTED', 'INTERESTED'] },
         id: currentLeadId ? { not: currentLeadId } : undefined,
       },
-      orderBy: [{ isHot: 'desc' }, { score: 'desc' }, { updatedAt: 'asc' }],
+      // Reserved leads only after the agent's other leads.
+      orderBy: [{ isReserved: 'asc' }, { isHot: 'desc' }, { score: 'desc' }, { updatedAt: 'asc' }],
       take: 1,
       include: {
         followUps: {
@@ -282,7 +283,14 @@ export class CrmService {
   }
 
   // ─── CSV BULK IMPORT ───────────────────────────────────────────────────────
-  async bulkImport(rows: any[], agentId: string) {
+  // list: 'NEW' (default) or 'RESERVED'. Reserved leads are called by the
+  // auto dialer only after the agent's new leads run out, so they get no
+  // Day 1/3/7/14/30 follow-ups (those would pull them into the queue early).
+  async bulkImport(rows: any[], agentId: string, list?: string) {
+    if (list != null && list !== '' && list !== 'NEW' && list !== 'RESERVED') {
+      throw new BadRequestException('list must be NEW or RESERVED');
+    }
+    const isReserved = list === 'RESERVED';
     const results = { success: 0, skipped: 0, duplicates: 0, alreadyExists: 0, errors: [] as string[] };
 
     // Numbers this agent already has a Lead for. Re-uploading a file (or a
@@ -324,6 +332,7 @@ export class CrmService {
             agentId,
             score,
             isHot: score >= 70,
+            isReserved,
           },
         });
 
@@ -341,7 +350,7 @@ export class CrmService {
           where: { phone, agentId },
           orderBy: { createdAt: 'desc' },
         });
-        if (created) await this._scheduleFollowUps(created.id);
+        if (created && !isReserved) await this._scheduleFollowUps(created.id);
 
         results.success++;
       } catch (e) {

@@ -1526,6 +1526,9 @@ model Lead {
   status           LeadStatus     @default(NEW)
   score            Int            @default(0)
   isHot            Boolean        @default(false)
+  // Imported into the "Reserved leads" list: the auto dialer calls these only
+  // after the agent's new (non-reserved) leads run out. See dialer.service.ts.
+  isReserved       Boolean        @default(false)
   agentId          String
   agent            User           @relation("AgentLeads", fields: [agentId], references: [id])
   convertedOrderId String?

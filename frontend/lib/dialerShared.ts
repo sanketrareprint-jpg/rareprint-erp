@@ -14,8 +14,9 @@ export const DIALER_OUTCOMES: Array<{ value: DialerOutcome; label: string; class
 
 /** GET /dialer/next?list= — same keys as DIALER_LISTS in dialer.rules.ts. */
 export const DIAL_LISTS: Array<{ value: string; label: string }> = [
-  { value: "ALL", label: "All (follow-ups, new leads, not contacted)" },
-  { value: "NEW_LEADS", label: "New leads" },
+  { value: "ALL", label: "All (follow-ups, new leads, not contacted, then reserved)" },
+  { value: "NEW_LEADS", label: "New leads (then reserved when new run out)" },
+  { value: "RESERVED_LEADS", label: "Reserved leads" },
   { value: "NOT_CONTACTED", label: "Not contacted" },
   { value: "FOLLOW_UPS", label: "Follow-ups due" },
   { value: "INTERESTED", label: "Interested" },
@@ -37,6 +38,7 @@ export const DIALER_SOURCE_LABELS: Record<string, string> = {
   NI_NO_REQUIREMENT: "No requirement last time",
   FOLLOW_UP_DUE: "Follow-up due",
   FRESH_LEAD: "New lead",
+  RESERVED_LEAD: "Reserved lead",
   NOT_CONTACTED: "Not contacted",
   OLD_CALLBACK: "Older follow-up",
   INTERESTED: "Interested",

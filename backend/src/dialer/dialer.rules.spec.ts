@@ -242,6 +242,7 @@ describe('dialer rules — dial lists (RULE 8)', () => {
   it('accepts known lists and rejects others', () => {
     expect(parseDialerList('BUSY')).toBe('BUSY');
     expect(parseDialerList('NOT_INTERESTED')).toBe('NOT_INTERESTED');
+    expect(parseDialerList('RESERVED_LEADS')).toBe('RESERVED_LEADS');
     expect(parseDialerList('busy')).toBeNull();
     expect(parseDialerList('WON')).toBeNull();
   });

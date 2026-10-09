@@ -317,8 +317,10 @@ export function formatDuration(totalSec: number): string {
 
 /**
  * Which numbers the agent dials:
- *   ALL            — the default queue order (follow-ups due, new leads, not contacted, older follow-ups)
- *   NEW_LEADS      — NEW leads never called
+ *   ALL            — the default queue order (follow-ups due, new leads, not contacted, older
+ *                    follow-ups, then reserved leads)
+ *   NEW_LEADS      — NEW leads never called; once those run out, reserved leads
+ *   RESERVED_LEADS — reserved leads only (imported into the Reserved list, NEW, never called)
  *   NOT_CONTACTED  — Not Contacted contacts
  *   FOLLOW_UPS     — follow-ups due today, then older ones
  *   INTERESTED     — leads / contacts in INTERESTED status
@@ -328,7 +330,7 @@ export function formatDuration(totalSec: number): string {
  *                    call was Not interested for that reason (NI_LIST_REASONS)
  */
 export const DIALER_LISTS = [
-  'ALL', 'NEW_LEADS', 'NOT_CONTACTED', 'FOLLOW_UPS', 'INTERESTED', 'NOT_INTERESTED', 'BUSY', 'NOT_ANSWERED',
+  'ALL', 'NEW_LEADS', 'RESERVED_LEADS', 'NOT_CONTACTED', 'FOLLOW_UPS', 'INTERESTED', 'NOT_INTERESTED', 'BUSY', 'NOT_ANSWERED',
   'CALLBACK', 'NI_RATE', 'NI_QUANTITY', 'NI_TRUST', 'NI_NO_REQUIREMENT',
 ] as const;
 /** Not-interested-reason dial lists → the reason they dial. */

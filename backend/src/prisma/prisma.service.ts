@@ -54,6 +54,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$executeRawUnsafe(
       `ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "dateOfBirth" DATE`,
     ).catch(() => { /* ignore if already exists */ });
+    // Migration 20261009150000_add_lead_reserved — constant default, metadata-only.
+    // Prisma reads it on every Lead query, so the CRM breaks without it.
+    await this.$executeRawUnsafe(
+      `ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "isReserved" BOOLEAN NOT NULL DEFAULT false`,
+    ).catch(() => { /* ignore if already exists */ });
     // Migration 20261008120000_add_dialer_desk_response — nullable, metadata-only.
     // The dialer PC popup polls GET /dialer/live every few seconds, so a DB
     // without these would log an error per poll until migrated.

@@ -47,7 +47,7 @@ const COLUMNS: Array<{ key: keyof AgentStatsResponse["totals"]; label: string; t
   { key: "notAnswered", label: "No ans.", title: "Not answered (auto dialer + CRM)", className: "text-slate-600" },
   { key: "wrongNumber", label: "Wrong no.", title: "Auto dialer: Wrong number", className: "text-red-800" },
   { key: "answeredOther", label: "Answered", title: "CRM calls logged as Answered (no reply category)", className: "text-slate-600" },
-  { key: "newLeads", label: "New leads", title: "Leads in NEW status right now", className: "text-indigo-700 font-semibold" },
+  { key: "newLeads", label: "New leads", title: "Leads in NEW status right now (reserved leads not counted)", className: "text-indigo-700 font-semibold" },
   { key: "pipeline", label: "Pipeline", title: "Contacted / Interested / Quoted right now", className: "text-blue-700 font-semibold" },
   { key: "followUpsDue", label: "Follow-ups", title: "Customers with a follow-up due by end of today", className: "text-red-600 font-semibold" },
 ];
