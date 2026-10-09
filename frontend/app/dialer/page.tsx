@@ -249,6 +249,29 @@ export default function DialerPage() {
     };
   }, [isNative, refreshPerms, loadStats, stopSession]);
 
+  // Tell the backend what this phone is doing, so the PC popup shows only
+  // during a lead call: dialing / on call / call ended but outcome not saved.
+  // Paused, stopped, queue empty or leaving this screen → NONE (popup closes).
+  // "loading" is skipped: the previous number's lock is already gone by then.
+  const liveReportedRef = useRef("");
+  useEffect(() => {
+    if (!isNative || phase === "loading") return;
+    const state = phase === "dialing" ? "DIALING"
+      : phase === "onCall" ? "ON_CALL"
+      : phase === "outcome" || phase === "saving" ? "WRAP_UP"
+      : "NONE";
+    const number = state === "NONE" ? "" : item?.phone ?? "";
+    if (state !== "NONE" && !number) return;
+    const key = `${state}|${number}`;
+    if (key === liveReportedRef.current) return;
+    liveReportedRef.current = key;
+    apiMutate("/dialer/live-state", "POST", state === "NONE" ? { state } : { state, number });
+  }, [isNative, phase, item]);
+  useEffect(() => {
+    if (!isNative) return;
+    return () => { apiMutate("/dialer/live-state", "POST", { state: "NONE" }); };
+  }, [isNative]);
+
   useEffect(() => {
     if (phase !== "onCall" || !callStartedAt) return;
     const t = setInterval(() => setElapsed(Math.floor((Date.now() - callStartedAt) / 1000)), 1000);

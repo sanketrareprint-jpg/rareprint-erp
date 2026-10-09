@@ -51,6 +51,8 @@ import {
   normalizeDialPhone,
   parseDialerResult,
   wantsRecycleFollowUp,
+  isOnLiveCall,
+  parseLiveState,
 } from './dialer.rules';
 
 describe('dialer rules — outcome → status (RULE 1)', () => {
@@ -372,5 +374,39 @@ describe('dialer rules — reply details: reason, products, end call (RULE 11)',
   it('describes products for the activity note', () => {
     expect(describeReplyProducts([{ productId: 'p1', productName: 'Envelope 10x4', quantity: 5000, rate: 1.25 }, { productId: 'p2', productName: 'Bill book', quantity: 20, rate: null }]))
       .toBe('Envelope 10x4 × 5,000 @ ₹1.25, Bill book × 20');
+  });
+});
+
+describe('dialer rules — PC popup only during a lead call (RULE 11)', () => {
+  const lockedAt = new Date('2026-10-09T10:00:00Z');
+  const now = new Date('2026-10-09T10:05:00Z');
+  const at = (iso: string) => new Date(iso);
+
+  it('shows while dialing, on call and wrapping up', () => {
+    for (const liveState of ['DIALING', 'ON_CALL', 'WRAP_UP']) {
+      expect(isOnLiveCall({ lockedAt, liveState, liveStateAt: at('2026-10-09T10:01:00Z') }, now)).toBe(true);
+    }
+  });
+
+  it('hides when the number is only claimed (paused / stopped / never reported)', () => {
+    expect(isOnLiveCall({ lockedAt, liveState: null, liveStateAt: null }, now)).toBe(false);
+    expect(isOnLiveCall({ lockedAt, liveState: null, liveStateAt: at('2026-10-09T10:02:00Z') }, now)).toBe(false);
+    expect(isOnLiveCall({ lockedAt, liveState: 'NONE', liveStateAt: at('2026-10-09T10:02:00Z') }, now)).toBe(false);
+  });
+
+  it('ignores a state from before the lock was taken (another agent)', () => {
+    expect(isOnLiveCall({ lockedAt, liveState: 'ON_CALL', liveStateAt: at('2026-10-09T09:59:00Z') }, now)).toBe(false);
+  });
+
+  it('ignores a state older than 30 minutes (app killed mid-call)', () => {
+    expect(isOnLiveCall({ lockedAt, liveState: 'ON_CALL', liveStateAt: lockedAt }, new Date('2026-10-09T10:31:00Z'))).toBe(false);
+    expect(isOnLiveCall({ lockedAt, liveState: 'ON_CALL', liveStateAt: lockedAt }, new Date('2026-10-09T10:29:00Z'))).toBe(true);
+  });
+
+  it('validates the phone report', () => {
+    expect(parseLiveState({ state: 'NONE' })).toEqual({ ok: true, value: { state: 'NONE', phone: null } });
+    expect(parseLiveState({ state: 'ON_CALL', number: '+91 98765 43210' })).toEqual({ ok: true, value: { state: 'ON_CALL', phone: '9876543210' } });
+    expect('error' in parseLiveState({ state: 'ON_CALL' })).toBe(true);
+    expect('error' in parseLiveState({ state: 'RINGING', number: '9876543210' })).toBe(true);
   });
 });

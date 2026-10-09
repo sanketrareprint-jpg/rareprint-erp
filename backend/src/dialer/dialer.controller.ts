@@ -40,6 +40,12 @@ export class DialerController {
     return this.dialerService.saveDeskResponse(req.user, body);
   }
 
+  /** Phone: what it's doing with the number on screen (DIALING / ON_CALL / WRAP_UP / NONE) — drives the PC popup. */
+  @Post('live-state')
+  reportLiveState(@Body() body: any, @Req() req: Request & { user: JwtUser }) {
+    return this.dialerService.reportLiveState(req.user, body);
+  }
+
   /** PC popup "End call": your phone hangs up the call to this number (needs the app with end-call support). */
   @Post('end-call')
   requestEndCall(@Body() body: any, @Req() req: Request & { user: JwtUser }) {

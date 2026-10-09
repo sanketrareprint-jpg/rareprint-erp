@@ -66,6 +66,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       `"deskNotInterestedReason" TEXT`,
       `"deskProducts" JSONB`,
       `"deskEndCallAt" TIMESTAMP(3)`,
+      // Migration 20261009120000_add_dialer_live_state — same reason.
+      `"liveState" TEXT`,
+      `"liveStateAt" TIMESTAMP(3)`,
     ]) {
       await this.$executeRawUnsafe(
         `ALTER TABLE "DialerLock" ADD COLUMN IF NOT EXISTS ${col}`,

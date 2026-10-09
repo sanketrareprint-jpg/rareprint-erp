@@ -30,6 +30,8 @@ import {
   DialerSettings,
   EMPTY_DIALER_SETTINGS,
   LIVE_CALL_MAX_MINUTES,
+  isOnLiveCall,
+  parseLiveState,
   OUTCOME_CAMPAIGN_REPEAT_HOURS,
   RECENT_CALL_SKIP_MINUTES,
   agentStatsSince,
@@ -900,23 +902,29 @@ export class DialerService {
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * The number the logged-in user's phone is dialing right now (their
-   * DialerLock), with what the PC popup shows. { item: null } when the phone
-   * isn't on a dialer call.
+   * The lead the logged-in user's phone is on a call with right now, with
+   * what the PC popup shows. { item: null } when the phone isn't on a lead
+   * call. A DialerLock alone isn't enough — it stays behind when the agent
+   * pauses / stops / closes the app — so the phone's reported call state
+   * (POST /dialer/live-state) must say DIALING / ON_CALL / WRAP_UP.
    */
   async getLive(user: DialerUser) {
     this.assertDialerRole(user);
     const now = new Date();
     const lock = await this.prisma.dialerLock.findFirst({
-      where: { agentId: user.id, lockedAt: { gte: new Date(now.getTime() - LIVE_CALL_MAX_MINUTES * 60 * 1000) } },
+      where: {
+        agentId: user.id,
+        lockedAt: { gte: new Date(now.getTime() - LIVE_CALL_MAX_MINUTES * 60 * 1000) },
+        liveState: { in: ['DIALING', 'ON_CALL', 'WRAP_UP'] },
+      },
       orderBy: { lockedAt: 'desc' },
       select: {
-        phone: true, leadId: true, importedContactId: true, lockedAt: true,
+        phone: true, leadId: true, importedContactId: true, lockedAt: true, liveState: true, liveStateAt: true,
         deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true,
         deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true,
       },
     });
-    if (!lock || (!lock.leadId && !lock.importedContactId)) return { item: null };
+    if (!lock || (!lock.leadId && !lock.importedContactId) || !isOnLiveCall(lock, now)) return { item: null };
 
     const [item, dialerCalls, crmCalls, agent] = await Promise.all([
       this.describe(
@@ -966,6 +974,7 @@ export class DialerService {
         lockedAt: lock.lockedAt,
         deskResponse: isDeskResponseCurrent(lock) ? this.deskResponseOf(lock) : null,
         endCallRequested: isEndCallRequestCurrent(lock),
+        liveState: lock.liveState,
         callHistory,
         agent: { name: agent?.fullName ?? '', phone: agent?.phone ?? '' },
       },
@@ -1029,6 +1038,27 @@ export class DialerService {
       response: isDeskResponseCurrent(lock) ? this.deskResponseOf(lock) : null,
       endCallRequested: isEndCallRequestCurrent(lock),
     };
+  }
+
+  /**
+   * The phone reports what it's doing with the number on screen (see
+   * LIVE_STATES). NONE clears every number this user holds, so the PC popup
+   * closes as soon as the agent pauses, stops or leaves the dialer.
+   */
+  async reportLiveState(user: DialerUser, body: any) {
+    this.assertDialerRole(user);
+    const parsed = parseLiveState(body);
+    if ('error' in parsed) throw new BadRequestException(parsed.error);
+    const { state, phone } = parsed.value;
+    const now = new Date();
+    if (state === 'NONE') {
+      await this.prisma.dialerLock.updateMany({ where: { agentId: user.id }, data: { liveState: null, liveStateAt: now } });
+      return { ok: true };
+    }
+    if (!phone) throw new BadRequestException('number is required'); // parseLiveState guarantees it; keeps the filter from ever matching every lock
+    const res = await this.prisma.dialerLock.updateMany({ where: { phone, agentId: user.id }, data: { liveState: state, liveStateAt: now } });
+    // No lock = the call was already saved / the dialer moved on; nothing to show.
+    return { ok: res.count > 0 };
   }
 
   /** PC popup "End call": the phone hangs up the call it's on for this number. */

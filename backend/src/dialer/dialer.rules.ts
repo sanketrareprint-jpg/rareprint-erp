@@ -371,6 +371,44 @@ export function isDeskResponseCurrent(lock: { lockedAt: Date; deskOutcome: Diale
   return !!lock.deskOutcome && !!lock.deskSubmittedAt && lock.deskSubmittedAt.getTime() >= lock.lockedAt.getTime();
 }
 
+// ── What the phone is doing (POST /dialer/live-state) ──────────────────────
+
+/**
+ * Reported by the phone on every dialer screen change:
+ *   DIALING  — calling the lead (ringing)
+ *   ON_CALL  — the lead picked up
+ *   WRAP_UP  — call ended, outcome not saved yet (the PC can still answer)
+ *   NONE     — not on a lead call (paused / stopped / queue empty / left the screen)
+ */
+export const LIVE_STATES = ['DIALING', 'ON_CALL', 'WRAP_UP', 'NONE'] as const;
+export type LiveState = (typeof LIVE_STATES)[number];
+
+/**
+ * A reported call state older than this is ignored — covers the app being
+ * killed mid-call, when the phone never gets to report NONE.
+ */
+export const LIVE_STATE_MAX_MINUTES = 30;
+
+export function parseLiveState(body: any): { ok: true; value: { state: LiveState; phone: string | null } } | { ok: false; error: string } {
+  const state = body?.state as LiveState;
+  if (!(LIVE_STATES as readonly string[]).includes(state)) return { ok: false, error: `state must be one of ${LIVE_STATES.join(', ')}` };
+  if (state === 'NONE') return { ok: true, value: { state, phone: null } };
+  const phone = normalizeDialPhone(body?.number ?? body?.phone);
+  if (phone.length < 6) return { ok: false, error: 'number is required' };
+  return { ok: true, value: { state, phone } };
+}
+
+/**
+ * Whether the PC popup should show this lock: the phone said it's on a call
+ * to this number, after the lock was taken (a lock taken over from another
+ * agent never inherits their state), within LIVE_STATE_MAX_MINUTES.
+ */
+export function isOnLiveCall(lock: { lockedAt: Date; liveState: string | null; liveStateAt: Date | null }, now: Date = new Date()): boolean {
+  if (!lock.liveState || lock.liveState === 'NONE' || !lock.liveStateAt) return false;
+  if (lock.liveStateAt.getTime() < lock.lockedAt.getTime()) return false;
+  return now.getTime() - lock.liveStateAt.getTime() <= LIVE_STATE_MAX_MINUTES * 60 * 1000;
+}
+
 /** Same rule for "End call" pressed on the PC: only a press made after the lock was taken counts. */
 export function isEndCallRequestCurrent(lock: { lockedAt: Date; deskEndCallAt: Date | null }): boolean {
   return !!lock.deskEndCallAt && lock.deskEndCallAt.getTime() >= lock.lockedAt.getTime();
