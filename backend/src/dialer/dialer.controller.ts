@@ -40,7 +40,13 @@ export class DialerController {
     return this.dialerService.saveDeskResponse(req.user, body);
   }
 
-  /** Phone: has the PC answered for this number yet? ({ response: null } when not). */
+  /** PC popup "End call": your phone hangs up the call to this number (needs the app with end-call support). */
+  @Post('end-call')
+  requestEndCall(@Body() body: any, @Req() req: Request & { user: JwtUser }) {
+    return this.dialerService.requestEndCall(req.user, body);
+  }
+
+  /** Phone: has the PC answered for this number yet ({ response: null } when not), and was End call pressed there? */
   @Get('desk-response')
   getDeskResponse(@Req() req: Request & { user: JwtUser }, @Query('phone') phone?: string) {
     return this.dialerService.getDeskResponse(req.user, phone);

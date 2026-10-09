@@ -4,12 +4,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { PdfPreview } from "@/components/pdf-preview";
 import { API_BASE_URL } from "@/lib/api";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, getStoredUser } from "@/lib/auth";
 import { sameState, stateFromGstin } from "@/lib/gst-states";
 import {
   Receipt, Users, Settings2, BarChart2, Search, Loader2, Download, Send,
   Save, CheckCircle, Image as ImageIcon, Wallet, Pencil, Lock, FileText, Plus, Trash2, ArrowRight,
-  Eye, X, ShoppingBag,
+  Eye, X, ShoppingBag, ChevronDown, ChevronUp,
 } from "lucide-react";
 import DateInput from "@/components/DateInput";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -252,6 +252,17 @@ function BillingPageInner() {
   const [tab, setTab] = useState<"invoices" | "receipts" | "estimates" | "purchases" | "parties" | "company_profile" | "gst_summary">(
     focusInvoiceId ? "invoices" : "invoices",
   );
+
+  // Sellers (SALES_AGENT) get Billing for Estimates only — every other tab
+  // stays ADMIN/ACCOUNTS. Read after mount (localStorage) to avoid a
+  // hydration mismatch, same as DashboardShell.
+  const [estimatesOnly, setEstimatesOnly] = useState(false);
+  useEffect(() => {
+    if (getStoredUser()?.role === "SALES_AGENT") {
+      setEstimatesOnly(true);
+      setTab("estimates");
+    }
+  }, []);
 
   // ── Invoices ──────────────────────────────────────────────────────────
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -599,10 +610,17 @@ function BillingPageInner() {
       .finally(() => setCreditorsLoading(false));
   }, [partyKind, creditors, creditorsLoading, creditorsError]);
 
+  // Between md and xl the statement panel sits under the party list, so a tap
+  // would otherwise open it off-screen. (Phones expand the card instead.)
+  const statementPanelRef = useRef<HTMLDivElement>(null);
+
   async function openParty(customerId: string) {
     setSelectedParty(customerId);
     setPartyForm(null);
     setLedgerLoading(true);
+    if (window.innerWidth >= 768 && window.innerWidth < 1280) {
+      requestAnimationFrame(() => statementPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/billing/parties/${customerId}/statement`, { headers: getAuthHeaders() });
       if (res.ok) setLedger(await res.json());
@@ -852,6 +870,180 @@ function BillingPageInner() {
     }
   }
 
+  // Party statement — the desktop side panel and, on phones, the body of the
+  // tapped party card (compact = phone layout).
+  function renderPartyStatement(compact: boolean) {
+    if (ledgerLoading) return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>;
+    if (!ledger) return null;
+    return (
+      <div className="space-y-3">
+        <div className={compact ? "space-y-2" : "flex items-start justify-between gap-2 flex-wrap"}>
+          <div>
+            {/* The phone card's own header already shows the name. */}
+            {!compact && <p className="font-bold text-slate-900">{ledger.customer.businessName}</p>}
+            <p className="text-xs text-slate-500">{ledger.customer.phone} · {ledger.customer.gstNumber || "No GSTIN"}</p>
+            {(ledger.customer.billingAddress || ledger.customer.city || ledger.customer.state || ledger.customer.pincode) && (
+              <p className="text-xs text-slate-500">
+                {[ledger.customer.billingAddress, ledger.customer.city, ledger.customer.state, ledger.customer.pincode].filter(Boolean).join(", ")}
+              </p>
+            )}
+          </div>
+          <div className={compact ? "flex items-center gap-1.5" : "flex flex-wrap items-center gap-2"}>
+            <button
+              onClick={startPartyEdit}
+              disabled={partyForm !== null || !ledger.editLock?.canEdit}
+              title={ledger.editLock && !ledger.editLock.canEdit
+                ? (ledger.editLock.dispatchedOrders.length > 0
+                  ? `Locked: order ${ledger.editLock.dispatchedOrders[0]} is already dispatched. Only an admin can edit.`
+                  : "Only admin/accounts users can edit party details.")
+                : "Edit party details"}
+              className={`rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 ${compact ? "flex-1 justify-center whitespace-nowrap px-2" : ""}`}
+            >
+              {ledger.editLock && !ledger.editLock.canEdit ? <Lock className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} Edit
+            </button>
+            <button
+              onClick={() => void downloadBlob(`${API_BASE_URL}/billing/parties/${selectedParty}/statement/pdf`, `Statement_${ledger.customer.businessName}.pdf`)}
+              title="Download Statement PDF"
+              className={`rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1 ${compact ? "flex-1 justify-center whitespace-nowrap px-2" : ""}`}
+            >
+              <Download className="h-3.5 w-3.5" /> {compact ? "PDF" : "Download Statement PDF"}
+            </button>
+            <button
+              onClick={() => void downloadStatementExcel(ledger)}
+              title="Download Excel"
+              className={`rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 flex items-center gap-1 ${compact ? "flex-1 justify-center whitespace-nowrap px-2" : ""}`}
+            >
+              <Download className="h-3.5 w-3.5" /> {compact ? "Excel" : "Download Excel"}
+            </button>
+          </div>
+        </div>
+        {ledger.editLock && !ledger.editLock.canEdit && ledger.editLock.dispatchedOrders.length > 0 && (
+          <p className="flex items-center gap-1 text-[11px] text-slate-500">
+            <Lock className="h-3 w-3" /> Details locked — order {ledger.editLock.dispatchedOrders[0]} is already dispatched. Only an admin can edit.
+          </p>
+        )}
+        {partyForm && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
+            <p className="text-xs font-semibold text-slate-700">Edit party details</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Party Name *
+                <input value={partyForm.businessName} onChange={e => setPartyForm({ ...partyForm, businessName: e.target.value.toUpperCase() })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">Phone
+                <input value={partyForm.phone} inputMode="numeric" maxLength={10}
+                  onChange={e => setPartyForm({ ...partyForm, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">GSTIN
+                <input value={partyForm.gstNumber} maxLength={15} placeholder="Leave blank if none"
+                  onChange={e => {
+                    const gstNumber = e.target.value.toUpperCase().replace(/\s/g, "");
+                    const gstState = stateFromGstin(gstNumber);
+                    setPartyForm({ ...partyForm, gstNumber, ...(gstState && !partyForm.state.trim() ? { state: gstState.toUpperCase() } : {}) });
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400 font-mono" />
+                {stateFromGstin(partyForm.gstNumber) && partyForm.state.trim() && !sameState(stateFromGstin(partyForm.gstNumber), partyForm.state) && (
+                  <span className="block text-[10px] font-semibold text-amber-700">GSTIN is registered in {stateFromGstin(partyForm.gstNumber)}, but State is {partyForm.state}.</span>
+                )}
+              </label>
+              <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Billing Address
+                <textarea rows={2} value={partyForm.billingAddress} onChange={e => setPartyForm({ ...partyForm, billingAddress: e.target.value.toUpperCase() })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">City
+                <input value={partyForm.city} onChange={e => setPartyForm({ ...partyForm, city: e.target.value.toUpperCase() })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">State
+                <input value={partyForm.state} onChange={e => setPartyForm({ ...partyForm, state: e.target.value.toUpperCase() })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </label>
+              <label className="text-xs text-slate-600 space-y-1">Pincode
+                <input value={partyForm.pincode} inputMode="numeric" maxLength={6}
+                  onChange={e => setPartyForm({ ...partyForm, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500">Changes apply to this party&apos;s record everywhere — all past and current orders, invoices and receipts. City, state and pincode are also used for dispatch.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setPartyForm(null)} disabled={partySaving}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+              <button onClick={() => void savePartyEdit()} disabled={partySaving}
+                className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50 flex items-center gap-1">
+                {partySaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+              </button>
+            </div>
+          </div>
+        )}
+        {compact ? (
+          <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs text-slate-500">Total Billed</span><span className="font-bold text-slate-900">{fmt(ledger.totalBilled)}</span></div>
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs text-emerald-600">Total Received</span><span className="font-bold text-emerald-700">{fmt(ledger.totalReceived)}</span></div>
+            <div className="flex items-center justify-between gap-2 bg-red-50/60 px-3 py-1.5"><span className="text-xs text-red-600">Balance Due</span><span className="font-bold text-red-700">{fmt(ledger.balanceDue)}</span></div>
+          </div>
+        ) : (
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Total Billed</p><p className="font-bold">{fmt(ledger.totalBilled)}</p></div>
+          <div className="rounded-lg bg-emerald-50 p-2"><p className="text-[10px] text-emerald-600">Total Received</p><p className="font-bold text-emerald-700">{fmt(ledger.totalReceived)}</p></div>
+          <div className="rounded-lg bg-red-50 p-2"><p className="text-[10px] text-red-600">Balance Due</p><p className="font-bold text-red-700">{fmt(ledger.balanceDue)}</p></div>
+        </div>
+        )}
+        {compact ? (
+          // One wrapped two-line row per voucher, so nothing needs sideways scrolling.
+          <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {ledger.vouchers.length === 0 && (
+              <p className="px-3 py-4 text-center text-xs text-slate-400">No invoices or receipts yet</p>
+            )}
+            {ledger.vouchers.map((v, i) => (
+              <div key={`${v.voucherNo}-${i}`} className="flex items-start justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500">
+                    <span>{fmtDate(v.date)}</span>
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${v.type === "Sale" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>{v.type}</span>
+                    <span className="font-semibold text-slate-700">{v.voucherNo}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-600 break-words">{v.particulars}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  {v.debit ? <p className="text-sm font-semibold text-slate-900">Dr {fmt(v.debit)}</p> : null}
+                  {v.credit ? <p className="text-sm font-semibold text-emerald-600">Cr {fmt(v.credit)}</p> : null}
+                  <p className="text-[11px] text-slate-500">Bal {fmt(v.balance)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+        <div className="max-h-96 overflow-auto rounded-lg border border-slate-100">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-500 sticky top-0">
+              <tr><th className="px-2 py-1.5 text-left">Date</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Voucher No</th><th className="px-2 py-1.5 text-left">Particulars</th><th className="px-2 py-1.5 text-right">Debit</th><th className="px-2 py-1.5 text-right">Credit</th><th className="px-2 py-1.5 text-right">Balance</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {ledger.vouchers.length === 0 && (
+                <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-400">No invoices or receipts yet</td></tr>
+              )}
+              {ledger.vouchers.map((v, i) => (
+                <tr key={`${v.voucherNo}-${i}`}>
+                  <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{fmtDate(v.date)}</td>
+                  <td className="px-2 py-1.5">
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${v.type === "Sale" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>{v.type}</span>
+                  </td>
+                  <td className="px-2 py-1.5 font-semibold text-slate-700 whitespace-nowrap">{v.voucherNo}</td>
+                  <td className="px-2 py-1.5 text-slate-500">{v.particulars}</td>
+                  <td className="px-2 py-1.5 text-right">{v.debit ? fmt(v.debit) : ""}</td>
+                  <td className="px-2 py-1.5 text-right text-emerald-600">{v.credit ? fmt(v.credit) : ""}</td>
+                  <td className="px-2 py-1.5 text-right font-semibold">{fmt(v.balance)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <DashboardShell>
       <div className="p-6 lg:p-8">
@@ -859,41 +1051,45 @@ function BillingPageInner() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">Billing</h1>
-              <p className="mt-0.5 text-sm text-slate-600">Invoices, purchases, party ledgers, company profile, and GST reporting.</p>
+              <p className="mt-0.5 text-sm text-slate-600">{estimatesOnly ? "Create and share estimates." : "Invoices, purchases, party ledgers, company profile, and GST reporting."}</p>
             </div>
-            <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
-              <button onClick={() => setTab("invoices")}
+            <div className="mobile-tabs flex rounded-lg border border-slate-200 bg-white overflow-hidden">
+              {!estimatesOnly && (<>
+              <button onClick={() => setTab("invoices")} data-active={tab === "invoices"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${tab === "invoices" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Receipt className="h-3.5 w-3.5" /> Invoices
               </button>
-              <button onClick={() => setTab("receipts")}
+              <button onClick={() => setTab("receipts")} data-active={tab === "receipts"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "receipts" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Wallet className="h-3.5 w-3.5" /> Receipts
               </button>
-              <button onClick={() => setTab("estimates")}
-                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "estimates" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+              </>)}
+              <button onClick={() => setTab("estimates")} data-active={tab === "estimates"}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold ${estimatesOnly ? "" : "border-l border-slate-200"} transition ${tab === "estimates" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <FileText className="h-3.5 w-3.5" /> Estimates
               </button>
-              <button onClick={() => setTab("purchases")}
+              {!estimatesOnly && (<>
+              <button onClick={() => setTab("purchases")} data-active={tab === "purchases"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "purchases" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <ShoppingBag className="h-3.5 w-3.5" /> Purchases
               </button>
-              <button onClick={() => setTab("parties")}
+              <button onClick={() => setTab("parties")} data-active={tab === "parties"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "parties" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Users className="h-3.5 w-3.5" /> Parties
               </button>
-              <button onClick={() => setTab("company_profile")}
+              <button onClick={() => setTab("company_profile")} data-active={tab === "company_profile"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "company_profile" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Settings2 className="h-3.5 w-3.5" /> Company Profile
               </button>
-              <button onClick={() => setTab("gst_summary")}
+              <button onClick={() => setTab("gst_summary")} data-active={tab === "gst_summary"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "gst_summary" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <BarChart2 className="h-3.5 w-3.5" /> GST Summary
               </button>
+              </>)}
             </div>
           </div>
 
-          {!profileLoading && profile && !profile.companyAddress && (
+          {!estimatesOnly && !profileLoading && profile && !profile.companyAddress && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
               Company Profile isn't filled in yet — invoices will print with blank company details until you set it up in the <button onClick={() => setTab("company_profile")} className="underline font-semibold">Company Profile</button> tab.
             </div>
@@ -953,7 +1149,54 @@ function BillingPageInner() {
                   <p>No invoices found.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                <>
+                {/* Phone view: one card per invoice (table below is md+). */}
+                <div className="space-y-2 md:hidden">
+                  {filteredInvoices.map(inv => (
+                    <div key={inv.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-500"><span className="font-semibold text-blue-700">#{inv.invoiceNumber}</span> · {fmtDate(inv.issueDate)}{inv.cancelled && <span className="ml-1.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">CANCELLED</span>}</p>
+                          <p className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 break-words">{inv.customerName}</p>
+                          <p className="text-xs text-slate-500">{[inv.customerPhone, inv.salesAgentName].filter(Boolean).join(" · ") || "—"}</p>
+                          <p className="text-[11px] text-slate-500">WhatsApp: <span className="font-semibold text-slate-700">{inv.whatsappStatus}</span></p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-bold text-slate-900">{fmt(inv.totalAmount)}</p>
+                          <p className={`text-xs font-semibold ${inv.balanceAmount > 0 ? "text-red-600" : "text-emerald-600"}`}>Bal {fmt(inv.balanceAmount)}</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center gap-1.5 border-t border-slate-100 pt-2">
+                        <button
+                          onClick={() => void openPreview(inv.id, `${API_BASE_URL}/billing/invoices/${inv.id}/pdf`, `Invoice ${inv.invoiceNumber}`, `Invoice_${inv.invoiceNumber}.pdf`)}
+                          disabled={previewLoadingId === inv.id}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 disabled:opacity-50 flex items-center justify-center gap-1 whitespace-nowrap">
+                          <Eye className="h-3.5 w-3.5" /> {previewLoadingId === inv.id ? "…" : "Preview"}
+                        </button>
+                        <button
+                          onClick={() => void downloadBlob(`${API_BASE_URL}/billing/invoices/${inv.id}/pdf`, `Invoice_${inv.invoiceNumber}.pdf`)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 flex items-center justify-center gap-1 whitespace-nowrap">
+                          <Download className="h-3.5 w-3.5" /> PDF
+                        </button>
+                        <button
+                          onClick={() => void shareWhatsapp(inv.id)}
+                          disabled={sharingId === inv.id}
+                          className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700 disabled:opacity-50 flex items-center justify-center gap-1 whitespace-nowrap">
+                          <Send className="h-3.5 w-3.5" /> {sharingId === inv.id ? "…" : "Share"}
+                        </button>
+                        {inv.cancelled && (
+                          <button
+                            onClick={() => { setRemarkError(""); setRemarkEdit({ invoice: inv, text: inv.cancellationReason ?? "" }); }}
+                            className="flex-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700 flex items-center justify-center gap-1 whitespace-nowrap"
+                            title={inv.cancellationReason ? `Cancellation remark: ${inv.cancellationReason}` : "Add the reason this bill was cancelled"}>
+                            <Pencil className="h-3 w-3" /> Remark
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block rounded-xl border border-slate-200 bg-white overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
@@ -1017,6 +1260,7 @@ function BillingPageInner() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -1046,7 +1290,41 @@ function BillingPageInner() {
                   <p>No receipt vouchers found.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                <>
+                <div className="space-y-2 md:hidden">
+                  {receipts.map(r => (
+                    <div key={r.orderId} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-500"><span className="font-semibold text-blue-700">{r.receiptNumber}</span> · {fmtDate(r.receiptDate)}</p>
+                          <p className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 break-words">{r.customerName}</p>
+                          <p className="text-xs text-slate-500">Invoice {r.invoiceNumber}{r.customerPhone ? ` · ${r.customerPhone}` : ""}</p>
+                          <p className="text-[11px] text-slate-500">
+                            {r.paymentCount} payment{r.paymentCount !== 1 ? "s" : ""} · <span className={`font-semibold ${r.balanceAmount > 0 ? "text-red-600" : "text-emerald-600"}`}>Bal {fmt(r.balanceAmount)}</span>
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-bold text-emerald-600">{fmt(r.receivedAmount)}</p>
+                          <p className="text-[11px] text-slate-500">of {fmt(r.invoiceAmount)}</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center gap-1.5 border-t border-slate-100 pt-2">
+                        <button
+                          onClick={() => void openPreview(`receipt-${r.orderId}`, `${API_BASE_URL}/billing/receipts/${r.orderId}/pdf`, `Receipt ${r.receiptNumber}`, `Receipt_${r.receiptNumber}.pdf`)}
+                          disabled={previewLoadingId === `receipt-${r.orderId}`}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 disabled:opacity-50 flex items-center justify-center gap-1 whitespace-nowrap">
+                          <Eye className="h-3.5 w-3.5" /> {previewLoadingId === `receipt-${r.orderId}` ? "…" : "Preview"}
+                        </button>
+                        <button
+                          onClick={() => void downloadBlob(`${API_BASE_URL}/billing/receipts/${r.orderId}/pdf`, `Receipt_${r.receiptNumber}.pdf`)}
+                          className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 flex items-center justify-center gap-1 whitespace-nowrap">
+                          <Download className="h-3.5 w-3.5" /> PDF
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block rounded-xl border border-slate-200 bg-white overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
@@ -1096,6 +1374,7 @@ function BillingPageInner() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -1130,7 +1409,46 @@ function BillingPageInner() {
                       <p>No estimates yet.</p>
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                    <>
+                    <div className="space-y-2 md:hidden">
+                      {estimates.map(e => (
+                        <div key={e.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs text-slate-500"><span className="font-semibold text-blue-700">{e.estimateNumber}</span> · {fmtDate(e.estimateDate)}</p>
+                              <p className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 break-words">{e.customerName}</p>
+                              <p className="text-xs text-slate-500">{e.itemCount} item{e.itemCount !== 1 ? "s" : ""}{e.customerPhone ? ` · ${e.customerPhone}` : ""}</p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-sm font-bold text-slate-900">{fmt(e.totalAmount)}</p>
+                              {e.status === "CONVERTED"
+                                ? <span className="mt-0.5 inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">Order {e.convertedOrderNumber}</span>
+                                : <span className="mt-0.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">Open</span>}
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2">
+                            <button
+                              onClick={() => void downloadBlob(`${API_BASE_URL}/billing/estimates/${e.id}/pdf`, `Estimate_${e.estimateNumber}.pdf`)}
+                              className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 flex items-center justify-center gap-1 whitespace-nowrap">
+                              <Download className="h-3.5 w-3.5" /> PDF
+                            </button>
+                            {e.status === "OPEN" && (
+                              <>
+                                <button onClick={() => void openEditEstimate(e.id)}
+                                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 flex items-center justify-center gap-1 whitespace-nowrap">
+                                  <Pencil className="h-3.5 w-3.5" /> Edit
+                                </button>
+                                <button onClick={() => convertEstimate(e)}
+                                  className="basis-full rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700 flex items-center justify-center gap-1 whitespace-nowrap">
+                                  <ArrowRight className="h-3.5 w-3.5" /> Convert to Order
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="hidden md:block rounded-xl border border-slate-200 bg-white overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead className="bg-slate-50 text-slate-500">
                           <tr>
@@ -1182,6 +1500,7 @@ function BillingPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </>
               )}
@@ -1310,9 +1629,9 @@ function BillingPageInner() {
                       className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
                   </label>
 
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
                     <p className="text-sm text-slate-600">Total: <span className="text-base font-bold text-slate-900">{fmt(estimateFormTotal)}</span></p>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mobile-nowrap">
                       <button onClick={() => setEstimateForm(null)} disabled={estimateSaving}
                         className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
                       <button onClick={() => void saveEstimate()} disabled={estimateSaving}
@@ -1427,7 +1746,38 @@ function BillingPageInner() {
                   <p>No purchase bills found.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+                <>
+                <div className="space-y-2 md:hidden">
+                  {filteredPurchaseBills.map(b => (
+                    <div key={b.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-500">
+                            <span className="font-semibold text-blue-700 break-all">{b.billNumber}</span> · {fmtDate(b.billDate)}
+                          </p>
+                          <p className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 break-words">{b.vendorName}</p>
+                          {b.dueDate && <p className="text-xs text-slate-500">Due {fmtDate(b.dueDate)}</p>}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-bold text-slate-900">{fmt(b.totalAmount)}</p>
+                          <span className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${b.taxAmount > 0 ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                            {b.taxAmount > 0 ? "GST" : "Non-GST"}
+                          </span>
+                        </div>
+                      </div>
+                      {b.notes && <p className="mt-1 text-xs text-slate-500 break-words">{b.notes}</p>}
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-xs">
+                        <span className="text-slate-500">Taxable <span className="font-semibold text-slate-700">{fmt(b.taxableAmount)}</span> · GST <span className="font-semibold text-slate-700">{fmt(b.taxAmount)}</span></span>
+                        <span className="text-slate-500">{b.status.replace("_", " ")}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-3 text-xs">
+                        <span className="text-slate-500">Paid <span className="font-semibold text-emerald-600">{fmt(b.paidAmount)}</span></span>
+                        <span className={`font-semibold ${b.balanceAmount > 0 ? "text-red-600" : "text-emerald-600"}`}>Bal {fmt(b.balanceAmount)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block rounded-xl border border-slate-200 bg-white overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
@@ -1465,6 +1815,7 @@ function BillingPageInner() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -1502,10 +1853,43 @@ function BillingPageInner() {
                 ) : creditorsError ? (
                   <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{creditorsError}</div>
                 ) : creditors ? (
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                      <p className="px-3 py-2 text-xs font-semibold text-slate-700 border-b border-slate-100">Vendors &amp; Suppliers <span className="text-slate-400 font-normal">· from purchase bills</span></p>
-                      <div className="overflow-x-auto">
+                  <div className="grid gap-6 xl:grid-cols-2">
+                    <div className="rounded-xl border-2 border-amber-200 bg-white overflow-hidden">
+                      <div className="flex items-start justify-between gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2.5">
+                        <div>
+                          <p className="flex items-center gap-1.5 text-sm font-bold text-amber-900"><ShoppingBag className="h-4 w-4 shrink-0" /> Vendors &amp; Suppliers</p>
+                          <p className="text-[11px] text-amber-800/80">From purchase bills</p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-800">{displayedVendors.length}</span>
+                      </div>
+                      <div className="divide-y divide-slate-100 md:hidden">
+                        {displayedVendors.length === 0 ? (
+                          <p className="px-3 py-8 text-center text-xs text-slate-400">No vendors or suppliers found.</p>
+                        ) : displayedVendors.map(v => (
+                          <div key={v.vendorId} className="px-3 py-2.5">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold leading-snug text-slate-800 break-words">
+                                  {v.name}
+                                  {v.isPress && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">PRESS</span>}
+                                  {!v.isActive && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">INACTIVE</span>}
+                                </p>
+                                <p className="text-xs text-slate-500 break-all">{[v.phone, v.gstNumber].filter(Boolean).join(" · ")}</p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className={`text-sm font-bold ${v.balanceDue > 0 ? "text-red-600" : "text-emerald-600"}`}>{v.balanceDue < 0 ? fmt(-v.balanceDue) : fmt(v.balanceDue)}</p>
+                                <p className="text-[11px] text-slate-500">{v.balanceDue < 0 ? "advance" : "payable"}</p>
+                              </div>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Billed <span className="font-semibold text-slate-700">{fmt(v.totalBilled)}</span> · Paid <span className="font-semibold text-emerald-600">{fmt(v.totalPaid)}</span>
+                              {v.onAccountPaid > 0 && <> (incl. {fmt(v.onAccountPaid)} on account)</>}
+                              {v.notesAdjusted > 0 && <> · after {fmt(v.notesAdjusted)} notes</>}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500">
                             <tr><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-right">Billed</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Balance Payable</th></tr>
@@ -1537,9 +1921,34 @@ function BillingPageInner() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                      <p className="px-3 py-2 text-xs font-semibold text-slate-700 border-b border-slate-100">Employees <span className="text-slate-400 font-normal">· salary paid from tagged bank transactions</span></p>
-                      <div className="overflow-x-auto">
+                    <div className="rounded-xl border-2 border-indigo-200 bg-white overflow-hidden">
+                      <div className="flex items-start justify-between gap-2 border-b border-indigo-200 bg-indigo-50 px-3 py-2.5">
+                        <div>
+                          <p className="flex items-center gap-1.5 text-sm font-bold text-indigo-900"><Users className="h-4 w-4 shrink-0" /> Employees</p>
+                          <p className="text-[11px] text-indigo-800/80">Salary paid from tagged bank transactions</p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-800">{displayedEmployees.length}</span>
+                      </div>
+                      <div className="divide-y divide-slate-100 md:hidden">
+                        {displayedEmployees.length === 0 ? (
+                          <p className="px-3 py-8 text-center text-xs text-slate-400">No employees found.</p>
+                        ) : displayedEmployees.map((e, i) => (
+                          <div key={e.employeeId ?? `user-${i}`} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold leading-snug text-slate-800 break-words">
+                                {e.name}
+                                {e.status !== "ACTIVE" && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{e.status.replace(/_/g, " ")}</span>}
+                              </p>
+                              <p className="text-xs text-slate-500">{[e.designation, e.employeeCode, e.phone].filter(Boolean).join(" · ") || "—"}</p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-sm font-bold text-emerald-600">{fmt(e.salaryPaid)}</p>
+                              <p className="text-[11px] text-slate-500">salary paid</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500">
                             <tr><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-left">Designation</th><th className="px-3 py-2 text-right">Salary Paid</th></tr>
@@ -1567,7 +1976,7 @@ function BillingPageInner() {
               </div>
             ) : (
             <div className="grid gap-4 xl:grid-cols-2">
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3">
                 <div className="relative max-w-sm">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                   <input type="text" value={partySearch} onChange={e => setPartySearch(e.target.value)}
@@ -1577,7 +1986,47 @@ function BillingPageInner() {
                 {partiesLoading ? (
                   <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
                 ) : (
-                  <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                  <>
+                  <div className="space-y-2 md:hidden">
+                    {/* Phone view: tapping a party expands its statement inside the card. */}
+                    {displayedParties.map(p => {
+                      const expanded = selectedParty === p.customerId;
+                      return (
+                        <div key={p.customerId} id={`party-card-${p.customerId}`}
+                          className={`scroll-mt-3 overflow-hidden rounded-xl border bg-white shadow-sm ${expanded ? "border-blue-300" : "border-slate-200"}`}>
+                          <button type="button"
+                            onClick={() => {
+                              if (expanded) { setSelectedParty(null); setPartyForm(null); return; }
+                              void openParty(p.customerId);
+                              // A card above may collapse as this one opens; keep this one in view.
+                              requestAnimationFrame(() => document.getElementById(`party-card-${p.customerId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+                            }}
+                            className={`block w-full p-3 text-left ${expanded ? "bg-blue-50" : ""}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold leading-snug text-slate-900 break-words">{p.customerName}</p>
+                                {p.phone && <p className="text-xs text-slate-500">{p.phone}</p>}
+                              </div>
+                              <div className="flex shrink-0 items-start gap-1.5 text-right">
+                                <div>
+                                  <p className={`text-sm font-bold ${p.balanceDue > 0 ? "text-red-600" : "text-emerald-600"}`}>{fmt(p.balanceDue)}</p>
+                                  <p className="text-[11px] text-slate-500">due</p>
+                                </div>
+                                {expanded ? <ChevronUp className="mt-0.5 h-4 w-4 text-slate-400" /> : <ChevronDown className="mt-0.5 h-4 w-4 text-slate-400" />}
+                              </div>
+                            </div>
+                            <p className="mt-1.5 border-t border-slate-100 pt-1.5 text-xs text-slate-500">
+                              Billed <span className="font-semibold text-slate-700">{fmt(p.totalBilled)}</span> · Received <span className="font-semibold text-emerald-600">{fmt(p.totalReceived)}</span>
+                            </p>
+                          </button>
+                          {expanded && (
+                            <div className="border-t border-blue-100 p-3">{renderPartyStatement(true)}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="hidden md:block rounded-xl border border-slate-200 bg-white overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-right">Billed</th><th className="px-3 py-2 text-right">Received</th><th className="px-3 py-2 text-right">Balance Due</th></tr>
@@ -1595,144 +2044,14 @@ function BillingPageInner() {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 )}
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div ref={statementPanelRef} className="hidden md:block min-w-0 scroll-mt-3 rounded-xl border border-slate-200 bg-white p-4">
                 {!selectedParty ? (
                   <div className="py-16 text-center text-slate-400"><Users className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">Select a party to view their statement.</p></div>
-                ) : ledgerLoading ? (
-                  <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
-                ) : ledger ? (
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div>
-                        <p className="font-bold text-slate-900">{ledger.customer.businessName}</p>
-                        <p className="text-xs text-slate-500">{ledger.customer.phone} · {ledger.customer.gstNumber || "No GSTIN"}</p>
-                        {(ledger.customer.billingAddress || ledger.customer.city || ledger.customer.state || ledger.customer.pincode) && (
-                          <p className="text-xs text-slate-500">
-                            {[ledger.customer.billingAddress, ledger.customer.city, ledger.customer.state, ledger.customer.pincode].filter(Boolean).join(", ")}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={startPartyEdit}
-                          disabled={partyForm !== null || !ledger.editLock?.canEdit}
-                          title={ledger.editLock && !ledger.editLock.canEdit
-                            ? (ledger.editLock.dispatchedOrders.length > 0
-                              ? `Locked: order ${ledger.editLock.dispatchedOrders[0]} is already dispatched. Only an admin can edit.`
-                              : "Only admin/accounts users can edit party details.")
-                            : "Edit party details"}
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                        >
-                          {ledger.editLock && !ledger.editLock.canEdit ? <Lock className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} Edit
-                        </button>
-                        <button
-                          onClick={() => void downloadBlob(`${API_BASE_URL}/billing/parties/${selectedParty}/statement/pdf`, `Statement_${ledger.customer.businessName}.pdf`)}
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1"
-                        >
-                          <Download className="h-3.5 w-3.5" /> Download Statement PDF
-                        </button>
-                        <button
-                          onClick={() => void downloadStatementExcel(ledger)}
-                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 flex items-center gap-1"
-                        >
-                          <Download className="h-3.5 w-3.5" /> Download Excel
-                        </button>
-                      </div>
-                    </div>
-                    {ledger.editLock && !ledger.editLock.canEdit && ledger.editLock.dispatchedOrders.length > 0 && (
-                      <p className="flex items-center gap-1 text-[11px] text-slate-500">
-                        <Lock className="h-3 w-3" /> Details locked — order {ledger.editLock.dispatchedOrders[0]} is already dispatched. Only an admin can edit.
-                      </p>
-                    )}
-                    {partyForm && (
-                      <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
-                        <p className="text-xs font-semibold text-slate-700">Edit party details</p>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Party Name *
-                            <input value={partyForm.businessName} onChange={e => setPartyForm({ ...partyForm, businessName: e.target.value.toUpperCase() })}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                          </label>
-                          <label className="text-xs text-slate-600 space-y-1">Phone
-                            <input value={partyForm.phone} inputMode="numeric" maxLength={10}
-                              onChange={e => setPartyForm({ ...partyForm, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                          </label>
-                          <label className="text-xs text-slate-600 space-y-1">GSTIN
-                            <input value={partyForm.gstNumber} maxLength={15} placeholder="Leave blank if none"
-                              onChange={e => {
-                                const gstNumber = e.target.value.toUpperCase().replace(/\s/g, "");
-                                const gstState = stateFromGstin(gstNumber);
-                                setPartyForm({ ...partyForm, gstNumber, ...(gstState && !partyForm.state.trim() ? { state: gstState.toUpperCase() } : {}) });
-                              }}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400 font-mono" />
-                            {stateFromGstin(partyForm.gstNumber) && partyForm.state.trim() && !sameState(stateFromGstin(partyForm.gstNumber), partyForm.state) && (
-                              <span className="block text-[10px] font-semibold text-amber-700">GSTIN is registered in {stateFromGstin(partyForm.gstNumber)}, but State is {partyForm.state}.</span>
-                            )}
-                          </label>
-                          <label className="text-xs text-slate-600 space-y-1 sm:col-span-2">Billing Address
-                            <textarea rows={2} value={partyForm.billingAddress} onChange={e => setPartyForm({ ...partyForm, billingAddress: e.target.value.toUpperCase() })}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                          </label>
-                          <label className="text-xs text-slate-600 space-y-1">City
-                            <input value={partyForm.city} onChange={e => setPartyForm({ ...partyForm, city: e.target.value.toUpperCase() })}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                          </label>
-                          <label className="text-xs text-slate-600 space-y-1">State
-                            <input value={partyForm.state} onChange={e => setPartyForm({ ...partyForm, state: e.target.value.toUpperCase() })}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                          </label>
-                          <label className="text-xs text-slate-600 space-y-1">Pincode
-                            <input value={partyForm.pincode} inputMode="numeric" maxLength={6}
-                              onChange={e => setPartyForm({ ...partyForm, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400" />
-                          </label>
-                        </div>
-                        <p className="text-[11px] text-slate-500">Changes apply to this party&apos;s record everywhere — all past and current orders, invoices and receipts. City, state and pincode are also used for dispatch.</p>
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => setPartyForm(null)} disabled={partySaving}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-                          <button onClick={() => void savePartyEdit()} disabled={partySaving}
-                            className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50 flex items-center gap-1">
-                            {partySaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Total Billed</p><p className="font-bold">{fmt(ledger.totalBilled)}</p></div>
-                      <div className="rounded-lg bg-emerald-50 p-2"><p className="text-[10px] text-emerald-600">Total Received</p><p className="font-bold text-emerald-700">{fmt(ledger.totalReceived)}</p></div>
-                      <div className="rounded-lg bg-red-50 p-2"><p className="text-[10px] text-red-600">Balance Due</p><p className="font-bold text-red-700">{fmt(ledger.balanceDue)}</p></div>
-                    </div>
-                    <div className="max-h-96 overflow-auto rounded-lg border border-slate-100">
-                      <table className="w-full text-xs">
-                        <thead className="bg-slate-50 text-slate-500 sticky top-0">
-                          <tr><th className="px-2 py-1.5 text-left">Date</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Voucher No</th><th className="px-2 py-1.5 text-left">Particulars</th><th className="px-2 py-1.5 text-right">Debit</th><th className="px-2 py-1.5 text-right">Credit</th><th className="px-2 py-1.5 text-right">Balance</th></tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {ledger.vouchers.length === 0 && (
-                            <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-400">No invoices or receipts yet</td></tr>
-                          )}
-                          {ledger.vouchers.map((v, i) => (
-                            <tr key={`${v.voucherNo}-${i}`}>
-                              <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{fmtDate(v.date)}</td>
-                              <td className="px-2 py-1.5">
-                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${v.type === "Sale" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>{v.type}</span>
-                              </td>
-                              <td className="px-2 py-1.5 font-semibold text-slate-700 whitespace-nowrap">{v.voucherNo}</td>
-                              <td className="px-2 py-1.5 text-slate-500">{v.particulars}</td>
-                              <td className="px-2 py-1.5 text-right">{v.debit ? fmt(v.debit) : ""}</td>
-                              <td className="px-2 py-1.5 text-right text-emerald-600">{v.credit ? fmt(v.credit) : ""}</td>
-                              <td className="px-2 py-1.5 text-right font-semibold">{fmt(v.balance)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : null}
+                ) : renderPartyStatement(false)}
               </div>
             </div>
             )}
@@ -1873,6 +2192,7 @@ function BillingPageInner() {
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                     <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">HSN/SAC-wise Breakdown</div>
+                    <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr><th className="px-3 py-2 text-left">HSN/SAC</th><th className="px-3 py-2 text-right">Taxable</th><th className="px-3 py-2 text-right">CGST</th><th className="px-3 py-2 text-right">SGST</th><th className="px-3 py-2 text-right">IGST</th><th className="px-3 py-2 text-right">Total Tax</th></tr>
@@ -1890,6 +2210,7 @@ function BillingPageInner() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </>
               ) : null}

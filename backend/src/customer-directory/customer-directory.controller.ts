@@ -15,8 +15,9 @@ export class CustomerDirectoryController {
     @Query('product') product?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('suggest') suggest?: string,
   ) {
-    return this.service.search({ search, city, state, product, page, limit });
+    return this.service.search({ search, city, state, product, page, limit, suggest });
   }
 
   @Get('orders')

@@ -62,10 +62,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       `"deskNote" TEXT`,
       `"deskCallbackAt" TIMESTAMP(3)`,
       `"deskSubmittedAt" TIMESTAMP(3)`,
+      // Migration 20261008180000_add_dialer_reply_details — same reason.
+      `"deskNotInterestedReason" TEXT`,
+      `"deskProducts" JSONB`,
+      `"deskEndCallAt" TIMESTAMP(3)`,
     ]) {
       await this.$executeRawUnsafe(
         `ALTER TABLE "DialerLock" ADD COLUMN IF NOT EXISTS ${col}`,
       ).catch(() => { /* ignore if already exists, or DialerLock not created yet */ });
+    }
+    for (const col of [`"notInterestedReason" TEXT`, `"products" JSONB`]) {
+      await this.$executeRawUnsafe(
+        `ALTER TABLE "DialerCall" ADD COLUMN IF NOT EXISTS ${col}`,
+      ).catch(() => { /* ignore if already exists, or DialerCall not created yet */ });
     }
   }
   async onModuleDestroy() {

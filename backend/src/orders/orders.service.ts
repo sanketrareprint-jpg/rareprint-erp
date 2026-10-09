@@ -15,8 +15,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
+import { CREDIT_DISPATCH_METADATA, CREDIT_DISPATCH_NOTE } from '../common/credit-dispatch';
 import { UPSELL_ELIGIBLE_STATUSES, upsellBlockReason } from '../common/order-upsell';
 import type { PendingUpsell, UpsellItemChange, UpsellNewItem } from '../common/order-upsell';
+import { OffersService, type OfferPricedLine } from '../offers/offers.service';
+import { offerLineCommission } from '../offers/offer-rules';
 
 // Same convention as AccountsService — Sanket is the super-admin, identified
 // by email rather than a Role enum value, since this app has never had a
@@ -326,6 +329,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly offers: OffersService,
   ) {}
 
   private async getSlabsByProductId(productIds: string[]) {
@@ -415,6 +419,13 @@ export class OrdersService {
       const rateSlab = this.matchingRateSlab(item);
       const rateTotal = rateSlab ? Number(rateSlab.rateAmount) : lineTotal;
       const discountPct = rateTotal > 0 ? Math.max(0, ((rateTotal - lineTotal) / rateTotal) * 100) : 0;
+
+      // Offer-priced line: flat slab, never the profit ÷ N formula. This
+      // single-order view has no monthly target, same as the lines below.
+      if (item.offerLocked) {
+        commissionTotal += offerLineCommission({ category, isSticker: this.isSticker(item), lineTotal, rateTotal, belowTarget: false }).amount;
+        continue;
+      }
 
       if (profit !== null && profit > 0) {
         if (category === 'D') {
@@ -608,6 +619,8 @@ export class OrdersService {
             // isParcelBooking above follows the same rule.
             dispatchedAt: true,
             cancelledAt: true,
+            // Needed by calculateOrderCommission (offer lines use a flat rate).
+            offerLocked: true,
           }
         },
         payments: true,
@@ -692,7 +705,8 @@ export class OrdersService {
   async create(
     dto: {
       customer: { customerId?: string; name: string; phone?: string; phone2?: string; email?: string; address?: string; city?: string; state?: string; pincode?: string; gstNumber?: string; contactPerson?: string; dateOfBirth?: string };
-      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; offerCodeId?: string }>;
+      items: Array<{ productId: string; quantity: number; unitPrice: number; itemProductionStage?: string; artworkNotes?: string; productionNotes?: string; offerCodeId?: string; fromOffer?: boolean }>;
+      offerId?: string;
       notes?: string;
       leadSource?: string;
       isSample?: boolean;
@@ -771,6 +785,35 @@ export class OrdersService {
       }
     }
 
+    // ── Order-level offer (Offers tab) ─────────────────────────────────────
+    // Lines marked fromOffer are priced by OffersService — the prices the
+    // browser sent for them are ignored. DISCOUNT: every marked line must
+    // qualify. FREE_ON_QTY / COMBO: the marked lines must be exactly the
+    // offer's own lines (product + quantity, in order).
+    const offerLineByIndex = new Map<number, OfferPricedLine>();
+    let appliedOfferId: string | null = null;
+    let offerSetsQuantities = false;
+    if (dto.offerId) {
+      const marked = dto.items.map((item, index) => ({ item, index })).filter(({ item }) => item.fromOffer);
+      if (marked.length === 0) {
+        throw new BadRequestException('No order lines are marked as part of the selected offer');
+      }
+      const { offer, lines } = await this.offers.priceOffer(
+        dto.offerId,
+        marked.map(({ item }) => ({ productId: item.productId, quantity: item.quantity })),
+      );
+      const linesMatch = offer.offerType === 'DISCOUNT'
+        ? lines.length === marked.length
+        : lines.length === marked.length
+          && marked.every(({ item }, n) => item.productId === lines[n].productId && item.quantity === lines[n].quantity);
+      if (!linesMatch) {
+        throw new BadRequestException(`The items of offer "${offer.code}" were changed — remove the offer and apply it again`);
+      }
+      marked.forEach(({ index }, n) => offerLineByIndex.set(index, lines[n]));
+      appliedOfferId = offer.id;
+      offerSetsQuantities = offer.offerType !== 'DISCOUNT';
+    }
+
     // ── Validate product min qty rules ────────────────────────────────────
     let rules: any[] = [];
     try {
@@ -781,7 +824,9 @@ export class OrdersService {
       // If productRule table doesn't exist yet, skip min qty check
     }
     const ruleMap = new Map<string, any>(rules.map(r => [r.productId, r]));
-    for (const item of dto.items) {
+    for (const [index, item] of dto.items.entries()) {
+      // Quantities fixed by a free-item/combo offer were set by an admin.
+      if (offerSetsQuantities && offerLineByIndex.has(index)) continue;
       const rule = ruleMap.get(item.productId);
       if (rule && item.quantity < (rule.minQty as number)) {
         const prod = products.find(p => p.id === item.productId);
@@ -811,19 +856,23 @@ export class OrdersService {
 
     const customerCode = `CUST-${Date.now()}-${randomSuffix()}`;
 
-    const itemsData = dto.items.map((i) => ({
-      productId: i.productId,
-      quantity: i.quantity,
-      unitPrice: new Prisma.Decimal(i.unitPrice),
-      lineDiscount: new Prisma.Decimal(0),
-      taxRatePct: new Prisma.Decimal(0),
-      taxAmount: new Prisma.Decimal(0),
-      lineTotal: new Prisma.Decimal(i.quantity * i.unitPrice),
-      itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
-      artworkNotes: i.artworkNotes ?? null,
-      productionNotes: i.productionNotes ?? null,
-      offerCodeId: i.offerCodeId ?? null,
-    })) as any[];
+    const itemsData = dto.items.map((i, index) => {
+      const offerLine = offerLineByIndex.get(index);
+      return {
+        productId: i.productId,
+        quantity: i.quantity,
+        unitPrice: new Prisma.Decimal(offerLine ? offerLine.unitPrice : i.unitPrice),
+        lineDiscount: new Prisma.Decimal(0),
+        taxRatePct: new Prisma.Decimal(0),
+        taxAmount: new Prisma.Decimal(0),
+        lineTotal: new Prisma.Decimal(offerLine ? offerLine.lineTotal : i.quantity * i.unitPrice),
+        itemProductionStage: (i.itemProductionStage as any) ?? 'NOT_PRINTED',
+        artworkNotes: i.artworkNotes ?? null,
+        productionNotes: i.productionNotes ?? null,
+        offerCodeId: offerLine ? appliedOfferId : (i.offerCodeId ?? null),
+        offerLocked: !!offerLine,
+      };
+    }) as any[];
 
     const subtotal = itemsData.reduce(
       (s, row) => s.plus(row.lineTotal),
@@ -1045,9 +1094,15 @@ export class OrdersService {
         },
       });
 
-      await tx.orderItem.deleteMany({ where: { orderId } });
+      // Offer-priced lines are locked: kept exactly as saved, never replaced
+      // from the edit form (which shows them read-only and doesn't send them).
+      const offerLockedItems = await tx.orderItem.findMany({
+        where: { orderId, offerLocked: true },
+        select: { lineTotal: true },
+      });
+      await tx.orderItem.deleteMany({ where: { orderId, offerLocked: false } });
 
-      const itemsData = body.items.map((i: any) => ({
+      const itemsData = body.items.filter((i: any) => !i.offerLocked).map((i: any) => ({
         productId: i.productId,
         quantity: i.quantity,
         unitPrice: new Prisma.Decimal(i.unitPrice),
@@ -1059,7 +1114,7 @@ export class OrdersService {
         productionNotes: i.productionNotes ?? null,
       }));
 
-      const subtotal = itemsData.reduce(
+      const subtotal = [...itemsData, ...offerLockedItems].reduce(
         (s: Prisma.Decimal, row: any) => s.plus(row.lineTotal),
         new Prisma.Decimal(0),
       );
@@ -1896,6 +1951,9 @@ export class OrdersService {
       const lineTotal = unitPrice.times(change.quantity).toDecimalPlaces(2);
       // Unchanged row — the page sends every existing item back.
       if (change.quantity === item.quantity && unitPrice.eq(item.unitPrice)) continue;
+      if (item.offerLocked) {
+        throw new BadRequestException(`${item.product.name} is part of an offer — its quantity and rate are locked`);
+      }
       // lineTotal is what was actually billed and can differ from
       // qty × rate on older orders (see approveOrder's margin comment), so
       // guard the amount too, not just the two inputs.
@@ -2032,7 +2090,7 @@ export class OrdersService {
   async submitDispatchBatch(
     orderIds: string[],
     agentId: string,
-    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string; itemIdsByOrder?: Record<string, string[]>; productPhoto?: string; billPhoto?: string },
+    data: { courierCharges: number; isCod: boolean; codAmount?: number; notes?: string; dispatchType?: string; transportName?: string; lrNumber?: string; transportChargesType?: string; transportBy?: string; awbNumber?: string; deliveryBoyName?: string; collectedByName?: string; collectedByPhone?: string; itemIdsByOrder?: Record<string, string[]>; productPhoto?: string; billPhoto?: string; isCredit?: boolean },
   ) {
     const results: string[] = [];
     const skipped: { orderId: string; orderNumber: string; reason: string }[] = [];
@@ -2226,7 +2284,8 @@ export class OrdersService {
         partialNote,
         dispatchTypeLine,
         dispatchCharge > 0 ? `Courier charges: ₹${dispatchCharge}` : '',
-        data.isCod ? `COD: ₹${data.codAmount ?? 0} to be collected on delivery` : 'Prepaid',
+        // isCredit is super-admin-only, enforced in OrdersController.
+        data.isCod ? `COD: ₹${data.codAmount ?? 0} to be collected on delivery` : data.isCredit ? CREDIT_DISPATCH_NOTE : 'Prepaid',
         orderIds.length > 1 ? `Batch with: ${orderIds.filter((id) => id !== orderId).join(', ')}` : '',
       ].filter(Boolean).join(' | ');
 
@@ -2283,6 +2342,9 @@ export class OrdersService {
             toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL,
             changedById: agentId,
             reason: `Agent submitted for dispatch. ${dispatchNotes}`,
+            // Read by AccountsService.getCustomerOutstanding to keep credit
+            // dispatches visible on the party's outstanding.
+            ...(data.isCredit ? { metadata: CREDIT_DISPATCH_METADATA } : {}),
           },
         });
 
@@ -2430,6 +2492,7 @@ export class OrdersService {
             // silently stayed counted even though findAllForTable's query
             // already excludes it. See the fix at calculateOrderCommission.
             cancelledAt: true,
+            offerLocked: true,
           }
         },
         payments: true,

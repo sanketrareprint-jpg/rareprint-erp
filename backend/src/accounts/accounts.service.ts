@@ -27,6 +27,7 @@ import { LoyaltyService } from '../loyalty/loyalty.service';
 import { HrService } from '../hr/hr.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrdersService } from '../orders/orders.service';
+import { isCreditDispatchLog } from '../common/credit-dispatch';
 import { BillingService } from '../billing/billing.service';
 import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
 import { splitInclusiveGst } from '../common/inclusive-gst';
@@ -441,7 +442,9 @@ export class AccountsService {
           where: { toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL },
           orderBy: { createdAt: 'desc' },
           take: 1,
-          select: { createdAt: true },
+          // metadata.creditDispatch: submitted on credit by the super admin
+          // (see OrdersService.submitDispatchBatch).
+          select: { createdAt: true, metadata: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -522,7 +525,7 @@ export class AccountsService {
         courierCharge,
         courierCreditApplied,
         netCourierCharge,
-        paymentType:   paymentTypeMatch ? paymentTypeMatch[1].toUpperCase() : null,
+        paymentType:   isCreditDispatchLog(order.statusLogs[0]?.metadata) ? 'CREDIT' : paymentTypeMatch ? paymentTypeMatch[1].toUpperCase() : null,
         codAmount:     codAmountMatch ? parseFloat(codAmountMatch[1]) : null,
         dispatchProductPhoto: (order as any).dispatchProductPhoto ?? null,
         dispatchBillPhoto:    (order as any).dispatchBillPhoto ?? null,
@@ -2161,9 +2164,28 @@ export class AccountsService {
           o.status,
           o."grandTotal",
           COALESCE(op."paidAmount", 0) AS "paidAmount",
-          GREATEST(o."grandTotal" - COALESCE(op."paidAmount", 0), 0) AS "balanceAmount"
+          GREATEST(o."grandTotal" - COALESCE(op."paidAmount", 0), 0) AS "balanceAmount",
+          -- Latest dispatch submission was made on credit by the super admin
+          -- (see OrdersService.submitDispatchBatch) and was not rejected
+          -- afterwards (rejectDispatch logs PENDING_DISPATCH_APPROVAL ->
+          -- APPROVED, which becomes the latest row and clears the flag).
+          COALESCE(lastsub."isCredit", false) AS "isCredit"
         FROM "Order" o
         LEFT JOIN order_paid op ON op."orderId" = o.id
+        LEFT JOIN LATERAL (
+          SELECT (
+            sl."toStatus" = 'PENDING_DISPATCH_APPROVAL'
+            AND COALESCE(sl.metadata->>'creditDispatch', '') = 'true'
+          ) AS "isCredit"
+          FROM "StatusLog" sl
+          WHERE sl."orderId" = o.id
+            AND (
+              sl."toStatus" = 'PENDING_DISPATCH_APPROVAL'
+              OR (sl."fromStatus" = 'PENDING_DISPATCH_APPROVAL' AND sl."toStatus" = 'APPROVED')
+            )
+          ORDER BY sl."createdAt" DESC
+          LIMIT 1
+        ) lastsub ON true
         WHERE o.status NOT IN ('DRAFT', 'CANCELLED') AND COALESCE(o."isTest", false) = false
       ),
       order_item_statuses AS (
@@ -2192,6 +2214,12 @@ export class AccountsService {
             FILTER (WHERE ob.status IN ('READY_FOR_DISPATCH', 'DELIVERED') AND ob."balanceAmount" > 0),
           0
         ) AS "reminderAmount",
+        COALESCE(
+          SUM(ob."balanceAmount") FILTER (WHERE ob."isCredit" AND ob."balanceAmount" > 0),
+          0
+        ) AS "creditAmount",
+        STRING_AGG(ob."orderNumber", ', ' ORDER BY ob."orderDate" DESC)
+          FILTER (WHERE ob."isCredit" AND ob."balanceAmount" > 0) AS "creditOrderNumbers",
         STRING_AGG(DISTINCT ois."productStatuses", ', ') AS "productStatuses",
         STRING_AGG(DISTINCT u."fullName", ', ' ORDER BY u."fullName") AS "sellerNames"
       FROM order_balances ob
@@ -2209,6 +2237,8 @@ export class AccountsService {
       paidAmount: Number(row.paidAmount),
       outstandingAmount: Number(row.outstandingAmount),
       reminderAmount: Number(row.reminderAmount),
+      creditAmount: Number(row.creditAmount),
+      creditOrderNumbers: row.creditOrderNumbers ?? '',
       canSendReminder: Number(row.reminderAmount) > 0 && Boolean(row.customerPhone),
       productStatuses: Array.from(new Set(String(row.productStatuses ?? '').split(', ').filter(Boolean))).join(', '),
       orderStatuses: Array.from(new Set(String(row.orderStatuses ?? '').split(', ').filter(Boolean))).join(', '),

@@ -16,6 +16,11 @@
  * RULE 8 — Dial lists: missing list = ALL (the original queue); unknown list rejected.
  * RULE 9 — A PC-popup response is validated like a phone result, and only
  *   counts if typed after the lock was taken (never inherited by another agent).
+ * RULE 11 — Reply details: Not interested may carry a reason (RATE / QUANTITY /
+ *   TRUST / NO_REQUIREMENT); products (whole quantity > 0, rate ≥ 0) only for
+ *   Interested (optional) or Rate / Quantity problem (required; Quantity has no
+ *   rate). New dial lists per reason + Callback. End call from the PC only counts
+ *   if pressed after the lock was taken.
  * RULE 10 — Dialer settings: no WhatsApp campaign for WRONG_NUMBER; blank
  *   campaign = send nothing; outcome templates get exactly 3 variables
  *   (customer name, agent name, agent phone).
@@ -26,6 +31,9 @@ import { DialerOutcome, LeadStatus } from '@prisma/client';
 import {
   RECENT_CALL_SKIP_MINUTES,
   isDeskResponseCurrent,
+  isEndCallRequestCurrent,
+  describeReplyProducts,
+  replyProductRule,
   outcomeCampaignParams,
   parseDeskResponse,
   parseDialerList,
@@ -208,12 +216,12 @@ describe('dialer rules — PC popup response (RULE 9)', () => {
   it('CALLBACK needs a future callbackAt, same as the phone', () => {
     expect(parseDeskResponse({ number: '9876543210', outcome: 'CALLBACK' }, now)).toEqual({ ok: false, error: 'callbackAt is required when outcome is CALLBACK' });
     const ok = parseDeskResponse({ number: '+91 98765 43210', outcome: 'CALLBACK', callbackAt: '2026-10-08T10:00:00Z', note: '  call after lunch ' }, now);
-    expect(ok).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.CALLBACK, note: 'call after lunch', callbackAt: new Date('2026-10-08T10:00:00Z') } });
+    expect(ok).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.CALLBACK, note: 'call after lunch', callbackAt: new Date('2026-10-08T10:00:00Z'), notInterestedReason: null, products: [] } });
   });
 
   it('ignores callbackAt for other outcomes', () => {
     const r = parseDeskResponse({ number: '9876543210', outcome: 'BUSY', callbackAt: 'garbage' }, now);
-    expect(r).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.BUSY, note: null, callbackAt: null } });
+    expect(r).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.BUSY, note: null, callbackAt: null, notInterestedReason: null, products: [] } });
   });
 
   it('only a response typed after the lock was taken counts', () => {
@@ -252,5 +260,77 @@ describe('dialer rules — settings (RULE 10)', () => {
   it('outcome templates get customer name, agent name, agent phone', () => {
     expect(outcomeCampaignParams('Ravi', 'Priya', '9876500000')).toEqual(['Ravi', 'Priya', '9876500000']);
     expect(outcomeCampaignParams(null, 'Priya', '9876500000')).toEqual(['Customer', 'Priya', '9876500000']);
+  });
+});
+
+describe('dialer rules — reply details: reason, products, end call (RULE 11)', () => {
+  const now = new Date('2026-10-08T09:00:00Z');
+  const base = { leadId: 'lead1', number: '9876543210', durationSec: 60, startedAt: '2026-10-08T08:58:00Z' };
+  const product = { productId: 'p1', quantity: 5000, rate: '1.25' };
+
+  it('Interested: products optional, quantity + rate kept', () => {
+    const none = parseDialerResult({ ...base, outcome: 'INTERESTED' }, now);
+    expect(none.ok && none.value.products).toEqual([]);
+    const r = parseDialerResult({ ...base, outcome: 'INTERESTED', products: [product, { productId: 'p2', quantity: '200' }] }, now);
+    expect(r.ok && r.value.products).toEqual([
+      { productId: 'p1', quantity: 5000, rate: 1.25 },
+      { productId: 'p2', quantity: 200, rate: null },
+    ]);
+  });
+
+  it('Rate / Quantity problem need a product; Quantity drops the rate', () => {
+    expect(parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'RATE' }, now))
+      .toEqual({ ok: false, error: 'Choose the product (and quantity) the customer asked about' });
+    const rate = parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'RATE', products: [product] }, now);
+    expect(rate.ok && rate.value.products).toEqual([{ productId: 'p1', quantity: 5000, rate: 1.25 }]);
+    const qty = parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'QUANTITY', products: [product] }, now);
+    expect(qty.ok && qty.value.products).toEqual([{ productId: 'p1', quantity: 5000, rate: null }]);
+  });
+
+  it('Trust / No requirement / other outcomes take no products', () => {
+    expect(parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'TRUST', products: [product] }, now).ok).toBe(false);
+    expect(parseDialerResult({ ...base, outcome: 'BUSY', products: [product] }, now).ok).toBe(false);
+    expect(parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'NO_REQUIREMENT' }, now).ok).toBe(true);
+    expect(replyProductRule(DialerOutcome.CALLBACK, null)).toBe('none');
+  });
+
+  it('reason is optional for Not interested (older app), rejected elsewhere, must be known', () => {
+    const r = parseDialerResult({ ...base, outcome: 'NOT_INTERESTED' }, now);
+    expect(r.ok && r.value.notInterestedReason).toBeNull();
+    expect(parseDialerResult({ ...base, outcome: 'INTERESTED', notInterestedReason: 'RATE' }, now).ok).toBe(false);
+    expect(parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'PRICE' }, now).ok).toBe(false);
+  });
+
+  it('rejects bad quantities / rates', () => {
+    const bad = (p: object) => parseDialerResult({ ...base, outcome: 'INTERESTED', products: [p] }, now).ok;
+    expect(bad({ productId: 'p1', quantity: 0 })).toBe(false);
+    expect(bad({ productId: 'p1', quantity: 2.5 })).toBe(false);
+    expect(bad({ productId: 'p1', quantity: 10, rate: -1 })).toBe(false);
+    expect(bad({ productId: 'p1', quantity: 10, rate: 'abc' })).toBe(false);
+    expect(bad({ productId: '', quantity: 10 })).toBe(false);
+  });
+
+  it('PC popup response carries the same details', () => {
+    const r = parseDeskResponse({ number: '9876543210', outcome: 'NOT_INTERESTED', notInterestedReason: 'QUANTITY', products: [product] }, now);
+    expect(r).toEqual({ ok: true, value: {
+      phone: '9876543210', outcome: DialerOutcome.NOT_INTERESTED, note: null, callbackAt: null,
+      notInterestedReason: 'QUANTITY', products: [{ productId: 'p1', quantity: 5000, rate: null }],
+    } });
+  });
+
+  it('new dial lists', () => {
+    for (const l of ['CALLBACK', 'NI_RATE', 'NI_QUANTITY', 'NI_TRUST', 'NI_NO_REQUIREMENT']) expect(parseDialerList(l)).toBe(l);
+  });
+
+  it('end call counts only when pressed after the lock was taken', () => {
+    const lockedAt = new Date('2026-10-08T09:00:00Z');
+    expect(isEndCallRequestCurrent({ lockedAt, deskEndCallAt: null })).toBe(false);
+    expect(isEndCallRequestCurrent({ lockedAt, deskEndCallAt: new Date('2026-10-08T08:59:00Z') })).toBe(false);
+    expect(isEndCallRequestCurrent({ lockedAt, deskEndCallAt: new Date('2026-10-08T09:00:30Z') })).toBe(true);
+  });
+
+  it('describes products for the activity note', () => {
+    expect(describeReplyProducts([{ productId: 'p1', productName: 'Envelope 10x4', quantity: 5000, rate: 1.25 }, { productId: 'p2', productName: 'Bill book', quantity: 20, rate: null }]))
+      .toBe('Envelope 10x4 × 5,000 @ ₹1.25, Bill book × 20');
   });
 });

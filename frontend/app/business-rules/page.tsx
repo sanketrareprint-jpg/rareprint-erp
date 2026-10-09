@@ -222,7 +222,7 @@ export default function BusinessRulesPage() {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="mobile-page-header flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-slate-900 rounded-xl">
               <Shield size={22} className="text-white" />
@@ -232,7 +232,7 @@ export default function BusinessRulesPage() {
               <p className="text-sm text-slate-500">All fixed process rules that protect your ERP</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="mobile-page-header-actions flex gap-2">
             {rules.length === 0 && !loading && (
               <button
                 onClick={seedRules}
@@ -254,21 +254,21 @@ export default function BusinessRulesPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+        <div className="mobile-grid-4 grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           <div className="bg-white border border-slate-200 rounded-xl p-4 text-center">
-            <div className="text-3xl font-black text-slate-900">{stats.total}</div>
+            <div className="text-2xl sm:text-3xl font-black text-slate-900">{stats.total}</div>
             <div className="text-xs text-slate-500 font-medium mt-0.5">Total Rules</div>
           </div>
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-            <div className="text-3xl font-black text-red-700">{stats.critical}</div>
+            <div className="text-2xl sm:text-3xl font-black text-red-700">{stats.critical}</div>
             <div className="text-xs text-red-600 font-medium mt-0.5">Critical</div>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-            <div className="text-3xl font-black text-amber-700">{stats.high}</div>
+            <div className="text-2xl sm:text-3xl font-black text-amber-700">{stats.high}</div>
             <div className="text-xs text-amber-600 font-medium mt-0.5">High</div>
           </div>
           <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 text-center">
-            <div className="text-3xl font-black text-sky-700">{stats.medium}</div>
+            <div className="text-2xl sm:text-3xl font-black text-sky-700">{stats.medium}</div>
             <div className="text-xs text-sky-600 font-medium mt-0.5">Medium</div>
           </div>
         </div>

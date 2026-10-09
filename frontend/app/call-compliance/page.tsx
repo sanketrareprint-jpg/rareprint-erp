@@ -171,7 +171,7 @@ export default function CallCompliancePage() {
   return (
     <DashboardShell>
       <div className="p-2.5 space-y-2">
-        <div className="flex items-baseline gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-2">
           <h1 className="text-sm font-bold text-slate-900">Call Compliance</h1>
           <p className="text-xs text-slate-400">Monthly call-log + AiSensy tag cross-check</p>
         </div>
@@ -187,7 +187,7 @@ export default function CallCompliancePage() {
           </div>
         )}
 
-        <div className="flex gap-1 border-b border-slate-200">
+        <div className="mobile-tabs mobile-tabs-even flex gap-1 border-b border-slate-200">
           {([
             { key: "call-logs", label: "Call Log Imports", icon: PhoneCall },
             { key: "contacts", label: "AiSensy Contacts", icon: Users },
@@ -195,6 +195,7 @@ export default function CallCompliancePage() {
           ] as { key: Tab; label: string; icon: React.ElementType }[]).map((t) => (
             <button
               key={t.key}
+              data-active={tab === t.key}
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 -mb-px ${
                 tab === t.key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"
@@ -207,13 +208,13 @@ export default function CallCompliancePage() {
 
         {tab === "call-logs" && (
           <div className="space-y-2">
-            <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm flex items-center gap-2">
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm flex flex-wrap items-center gap-2">
               <input ref={callLogInputRef} type="file" accept=".pdf" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadCallLog(f); }} />
               <button
                 onClick={() => callLogInputRef.current?.click()}
                 disabled={uploadingCallLog}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-md disabled:opacity-50"
+                className="mobile-nowrap flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-md disabled:opacity-50"
               >
                 {uploadingCallLog ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                 Upload monthly statement PDF
@@ -221,7 +222,48 @@ export default function CallCompliancePage() {
               <p className="text-xs text-slate-400">One PDF per agent's phone statement. We auto-match it to the agent whose phone number is on the bill.</p>
             </div>
 
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            {/* Phone: one card per statement (table below is md+). */}
+            <div className="md:hidden space-y-2.5">
+              {callLogImports.length === 0 && (
+                <p className="rounded-lg border border-slate-200 bg-white py-6 text-center text-xs text-slate-400">No call-log statements uploaded yet</p>
+              )}
+              {callLogImports.map((imp) => (
+                <div key={imp.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 break-words">{imp.agent ? imp.agent.fullName : "Unassigned"}</p>
+                      <p className="font-mono text-xs text-slate-600">{imp.ownerNumber ?? "—"}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-bold text-slate-900">{imp._count.records || imp.rowsImported}</p>
+                      <p className="text-[11px] text-slate-500">calls</p>
+                    </div>
+                  </div>
+                  {!imp.agent && (
+                    <div className="mt-2">
+                      <MobileSelect
+                        value=""
+                        onChange={(v) => { if (v) void assignImport(imp.id, v); }}
+                        className="w-full border border-amber-300 bg-amber-50 rounded px-2 py-1 text-xs"
+                        placeholder="Assign agent…"
+                        options={[{ value: "", label: "Assign agent…" }, ...agents.map((a) => ({ value: a.id, label: a.fullName }))]}
+                      />
+                    </div>
+                  )}
+                  <p className="mt-1.5 text-xs text-slate-500">Period: {fmtDate(imp.periodStart)} – {fmtDate(imp.periodEnd)}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                    <div className="min-w-0 text-xs text-slate-500">
+                      <p className="flex items-center gap-1 break-all"><FileText className="h-3 w-3 shrink-0 text-slate-400" />{imp.fileName}</p>
+                      <p>Imported by {imp.importedBy.fullName}</p>
+                    </div>
+                    <button onClick={() => void deleteImport(imp.id)} className="shrink-0 rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-red-500" title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
@@ -248,10 +290,10 @@ export default function CallCompliancePage() {
                         ) : (
                           <MobileSelect
                             value=""
-                            onChange={(v) => void assignImport(imp.id, v)}
+                            onChange={(v) => { if (v) void assignImport(imp.id, v); }}
                             className="border border-amber-300 bg-amber-50 rounded px-1.5 py-0.5 text-xs"
                             placeholder="Assign agent…"
-                            options={agents.map((a) => ({ value: a.id, label: a.fullName }))}
+                            options={[{ value: "", label: "Assign agent…" }, ...agents.map((a) => ({ value: a.id, label: a.fullName }))]}
                           />
                         )}
                       </td>
@@ -273,13 +315,13 @@ export default function CallCompliancePage() {
 
         {tab === "contacts" && (
           <div className="space-y-2">
-            <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm flex items-center gap-2">
+            <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 shadow-sm flex flex-wrap items-center gap-2">
               <input ref={contactsInputRef} type="file" accept=".csv" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadContacts(f); }} />
               <button
                 onClick={() => contactsInputRef.current?.click()}
                 disabled={uploadingContacts}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-md disabled:opacity-50"
+                className="mobile-nowrap flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-md disabled:opacity-50"
               >
                 {uploadingContacts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                 Upload AiSensy contacts CSV
@@ -287,7 +329,23 @@ export default function CallCompliancePage() {
               <p className="text-xs text-slate-400">The "Export Contacts" CSV from AiSensy. Tags are matched to agents via their AiSensy tag mapping below.</p>
             </div>
 
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            <div className="md:hidden space-y-2.5">
+              {contactImports.length === 0 && (
+                <p className="rounded-lg border border-slate-200 bg-white py-6 text-center text-xs text-slate-400">No AiSensy contact exports uploaded yet</p>
+              )}
+              {contactImports.map((imp) => (
+                <div key={imp.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <p className="flex items-start gap-1.5 text-sm font-semibold text-slate-800 break-all"><FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />{imp.fileName}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{fmtDate(imp.createdAt)} · by {imp.importedBy.fullName}</p>
+                  <div className="mt-2 flex gap-2 border-t border-slate-100 pt-2 text-center">
+                    <div className="flex-1"><p className="text-sm font-bold text-slate-800">{imp.rowsFound}</p><p className="text-[11px] text-slate-500">Rows found</p></div>
+                    <div className="flex-1"><p className="text-sm font-bold text-emerald-600">{imp.rowsImported}</p><p className="text-[11px] text-slate-500">New</p></div>
+                    <div className="flex-1"><p className="text-sm font-bold text-blue-600">{imp.rowsUpdated}</p><p className="text-[11px] text-slate-500">Updated</p></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
@@ -320,11 +378,16 @@ export default function CallCompliancePage() {
         )}
 
         {tab === "agents" && (
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
             <div className="px-3 py-2 border-b border-slate-100">
               <p className="text-xs text-slate-500">Map each agent to the tag name their contacts carry in AiSensy (e.g. "Vaishali"). Defaults to their first name if left blank.</p>
             </div>
-            <table className="w-full text-xs">
+            <div className="md:hidden divide-y divide-slate-100">
+              {agents.map((a) => (
+                <AgentTagRow key={a.id} agent={a} saving={savingTagFor === a.id} onSave={saveTag} layout="card" />
+              ))}
+            </div>
+            <table className="hidden md:table w-full text-xs">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="text-left px-3 py-1.5 font-medium">Agent</th>
@@ -346,8 +409,34 @@ export default function CallCompliancePage() {
   );
 }
 
-function AgentTagRow({ agent, saving, onSave }: { agent: Agent; saving: boolean; onSave: (id: string, value: string) => void }) {
+function AgentTagRow({ agent, saving, onSave, layout = "row" }: { agent: Agent; saving: boolean; onSave: (id: string, value: string) => void; layout?: "row" | "card" }) {
   const [value, setValue] = useState(agent.aisensyTag ?? "");
+  if (layout === "card") {
+    return (
+      <div className="px-3 py-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-sm font-semibold text-slate-800 break-words">{agent.fullName}</p>
+          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">{agent.role}</span>
+        </div>
+        <p className="font-mono text-xs text-slate-500">{agent.phone ?? "—"}</p>
+        <div className="mt-1.5 flex items-center gap-2">
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={`AiSensy tag (default: ${agent.fullName.split(" ")[0]})`}
+            className="min-w-0 flex-1 border border-slate-200 rounded px-2 py-1 text-xs"
+          />
+          <button
+            onClick={() => onSave(agent.id, value)}
+            disabled={saving}
+            className="shrink-0 rounded border border-blue-200 px-3 py-1 text-xs font-medium text-blue-600 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <tr>
       <td className="px-3 py-1.5 font-medium text-slate-800">{agent.fullName}</td>

@@ -41,8 +41,12 @@ function EditOrderPageInner() {
   const [orderNo, setOrderNo] = useState("");
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "" });
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
+  // Lines priced by an order-level offer: locked, shown read-only and never
+  // sent on save (the backend keeps them as they are).
+  const [offerLines, setOfferLines] = useState<Array<{ productName: string; quantity: number; lineTotal: number }>>([]);
   const [orderNotes, setOrderNotes] = useState("");
-  const orderTotal = lineItems.reduce((s, i) => s + (i.lineTotal || i.quantity * i.unitPrice), 0);
+  const orderTotal = lineItems.reduce((s, i) => s + (i.lineTotal || i.quantity * i.unitPrice), 0)
+    + offerLines.reduce((s, l) => s + l.lineTotal, 0);
   useEffect(() => {
     async function load() {
       const headers = getAuthHeaders();
@@ -66,8 +70,12 @@ function EditOrderPageInner() {
           pincode: o.customerPincode ?? "",
         });
         setOrderNotes(o.notes ?? "");
-        if (o.items?.length) {
-          setLineItems(o.items.map((i: any) => ({
+        const locked = (o.items ?? []).filter((i: any) => i.offerLocked);
+        setOfferLines(locked.map((i: any) => ({ productName: i.productName ?? "", quantity: i.quantity, lineTotal: Number(i.lineTotal) || 0 })));
+        const editable = (o.items ?? []).filter((i: any) => !i.offerLocked);
+        if (!editable.length && locked.length) setLineItems([]);
+        if (editable.length) {
+          setLineItems(editable.map((i: any) => ({
             productId: i.productId ?? "",
             sizeInches: i.sizeInches ?? "",
             gsm: i.gsm ?? 0,
@@ -135,7 +143,7 @@ function EditOrderPageInner() {
             {([["Full Name *","name","Customer / Business Name"],["Phone","phone","09XXXXXXXXX"],["Email","email","email@example.com"],["Address","address","Street address"],["City","city","City"],["State","state","State"],["Pincode","pincode","Pincode"]] as [string,string,string][]).map(([label,field,ph]) => (
               <div key={field}>
                 <label style={S.label}>{label}</label>
-                <input value={(customer as any)[field]} onChange={e => setCustomer(p => ({ ...p, [field]: field === "phone" ? sanitizePhone(e.target.value) : e.target.value }))} placeholder={ph} style={S.input} />
+                <input value={(customer as any)[field]} onChange={e => setCustomer(p => ({ ...p, [field]: field === "phone" ? sanitizePhone(e.target.value) : e.target.value }))} placeholder={ph} style={S.input} autoComplete="off" />
               </div>
             ))}
           </div>
@@ -146,6 +154,17 @@ function EditOrderPageInner() {
         </div>
         <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Products / Line Items</p>
+          {offerLines.length > 0 && (
+            <div style={{ marginBottom: "10px", borderRadius: "8px", border: "1px solid #c4b5fd", background: "#f5f3ff", padding: "8px 10px" }}>
+              <p style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 700, color: "#5b21b6" }}>🔒 Offer items — locked, cannot be edited</p>
+              {offerLines.map((l, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#4c1d95" }}>
+                  <span>{l.productName} × {l.quantity}</span>
+                  <span>{l.lineTotal === 0 ? "FREE" : `₹${l.lineTotal.toLocaleString("en-IN")}`}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="create-order-product-head" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px" }}>
             {["Product","Size","GSM","Paper","Sides","Qty","Rate/Unit","Amount",""].map(h => (
               <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
@@ -189,7 +208,7 @@ function EditOrderPageInner() {
                 <input type="number" min={0} value={item.lineTotal || (item.quantity * item.unitPrice) || ""}
                   onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
                   style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }} />
-                {lineItems.length > 1 ? (
+                {lineItems.length > 1 || offerLines.length > 0 ? (
                   <button onClick={() => setLineItems(p => p.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444" }}>
                     <Trash2 style={{ width: 14, height: 14 }} />
                   </button>

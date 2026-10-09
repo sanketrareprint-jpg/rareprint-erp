@@ -10,7 +10,7 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp, TicketPercent,
   PhoneOutgoing,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
@@ -64,6 +64,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Complaints", href: "/complaints",       icon: MessageSquareWarning },
     { label: "Feedback",   href: "/feedback",         icon: ThumbsUp },
     { label: "Policies",   href: "/policies",         icon: FileText },
+    { label: "Offers",     href: "/offers",           icon: TicketPercent },
     { label: "Settings",   href: "/settings",         icon: Settings },
     { label: "Activity",   href: "/admin/activity",   icon: Activity },
     { label: "Biz Rules",  href: "/business-rules",   icon: Shield },
@@ -91,6 +92,8 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
     { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
+    // Billing page shows sellers only its Estimates tab.
+    { label: "Billing", href: "/billing", icon: Receipt },
     { label: "Tasks", href: "/tasks", icon: CheckSquare },
     { label: "Courier Calculator", href: "/courier-calculator", icon: Calculator },
     { label: "Rate Calculator", href: "/rate-calculator", icon: Printer },

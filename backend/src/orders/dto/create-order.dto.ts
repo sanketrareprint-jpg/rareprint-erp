@@ -2,6 +2,7 @@ import { PaymentMethod } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsNotEmpty,
@@ -107,6 +108,12 @@ export class CreateOrderItemDto {
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
+
+  // Line belongs to the order's offer (CreateOrderDto.offerId); its price is
+  // recomputed server-side by OffersService.priceOffer.
+  @IsOptional()
+  @IsBoolean()
+  fromOffer?: boolean;
 }
 
 export class CreateOrderDto {
@@ -118,6 +125,12 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
+
+  // Order-level offer from the Offers tab (OfferCode of type DISCOUNT /
+  // FREE_ON_QTY / COMBO).
+  @IsOptional()
+  @IsString()
+  offerId?: string;
 
   @IsOptional()
   @IsNumber()

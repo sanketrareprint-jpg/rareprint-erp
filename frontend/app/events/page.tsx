@@ -204,7 +204,7 @@ export default function EventsPage() {
     <DashboardShell>
       <div className="p-4 md:p-6 max-w-6xl mx-auto">
         <div className="flex items-center gap-2 mb-4">
-          <PartyPopper className="text-amber-600" size={24} />
+          <PartyPopper className="shrink-0 text-amber-600" size={24} />
           <h1 className="text-xl font-bold text-slate-800">Events — Birthday, Anniversary &amp; Festival Wishes</h1>
         </div>
 
@@ -222,10 +222,11 @@ export default function EventsPage() {
           </div>
         )}
 
-        <div className="flex gap-1 mb-5 border-b">
+        <div className="mobile-tabs flex gap-1 mb-5 border-b">
           {TABS.map(([key, label]) => (
             <button
               key={key}
+              data-active={tab === key}
               onClick={() => setTab(key)}
               className={`px-3 py-2 text-sm font-semibold border-b-2 -mb-px ${tab === key ? "border-amber-600 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
             >
@@ -313,7 +314,41 @@ function PeopleTab({ setError, setSuccess }: { setError: (s: string | null) => v
       ) : !people.length ? (
         <p className="text-sm text-slate-500">No one registered yet — add a customer, friend, or anyone else you want to send birthday/anniversary wishes to.</p>
       ) : (
-        <div className="overflow-x-auto border rounded-lg">
+        <>
+        {/* Phone: one card per person instead of the 7-column table. */}
+        <div className="md:hidden space-y-2">
+          {people.map((p) => (
+            <div key={p.id} className="rounded-lg border bg-white p-3">
+              <div className="flex items-start gap-2.5">
+                {p.photoDataUrl ? <img src={p.photoDataUrl} className="h-9 w-9 shrink-0 rounded-full object-cover" /> : <div className="h-9 w-9 shrink-0 rounded-full bg-slate-200" />}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-800 break-words">{p.name}</p>
+                    {p.isActive ? <span className="shrink-0 text-xs text-green-700">Active</span> : <span className="shrink-0 text-xs text-slate-400">Paused</span>}
+                  </div>
+                  <p className="text-xs text-slate-600">{p.whatsappNumber}{p.relation ? ` · ${p.relation}` : ""}</p>
+                  <p className="text-xs text-slate-500">DOB {p.dob ? p.dob.slice(0, 10) : "—"} · Anniv {p.anniversaryDate ? p.anniversaryDate.slice(0, 10) : "—"}</p>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
+                {p.dob && (
+                  <button disabled={sendingFor === p.id} onClick={() => sendTest(p.id, "BIRTHDAY")} className="flex-1 whitespace-nowrap text-xs px-2 py-1.5 rounded border text-amber-700 border-amber-300 disabled:opacity-50 flex items-center justify-center gap-1">
+                    {sendingFor === p.id ? <Loader2 className="animate-spin" size={12} /> : <Send size={12} />} Test Bday
+                  </button>
+                )}
+                {p.anniversaryDate && (
+                  <button disabled={sendingFor === p.id} onClick={() => sendTest(p.id, "ANNIVERSARY")} className="flex-1 whitespace-nowrap text-xs px-2 py-1.5 rounded border text-amber-700 border-amber-300 disabled:opacity-50 flex items-center justify-center gap-1">
+                    {sendingFor === p.id ? <Loader2 className="animate-spin" size={12} /> : <Send size={12} />} Test Anniv
+                  </button>
+                )}
+                <button onClick={() => setEditing(p)} className="flex-1 whitespace-nowrap text-xs px-2 py-1.5 rounded border text-slate-600 flex items-center justify-center gap-1">
+                  <Pencil size={12} /> Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden md:block overflow-x-auto border rounded-lg">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
@@ -358,6 +393,7 @@ function PeopleTab({ setError, setSuccess }: { setError: (s: string | null) => v
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -532,9 +568,9 @@ function TemplatesTab({ setError }: { setError: (s: string | null) => void }) {
 
   return (
     <div>
-      <div className="flex gap-1 mb-3">
+      <div className="flex flex-wrap gap-1 mb-3">
         {(["BIRTHDAY", "ANNIVERSARY", "FESTIVAL", "CLIENT_FESTIVAL"] as TemplateOccasionType[]).map((o) => (
-          <button key={o} onClick={() => setOccasionFilter(o)} className={`text-xs px-3 py-1.5 rounded-full border ${occasionFilter === o ? "bg-amber-600 text-white border-amber-600" : "text-slate-600 border-slate-300 hover:bg-slate-50"}`}>
+          <button key={o} onClick={() => setOccasionFilter(o)} className={`mobile-nowrap text-xs px-3 py-1.5 rounded-full border ${occasionFilter === o ? "bg-amber-600 text-white border-amber-600" : "text-slate-600 border-slate-300 hover:bg-slate-50"}`}>
             {OCCASION_LABEL[o]}
           </button>
         ))}
@@ -582,9 +618,22 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
     img.src = imagePreview;
   }, [imagePreview]);
 
+  // Canvas shrinks to the available width on phones (capped at
+  // EDITOR_MAX_WIDTH_PX). Field positions are fractions, so saved templates
+  // are unaffected by the on-screen size.
+  const canvasBoxRef = useRef<HTMLDivElement>(null);
+  const [boxWidth, setBoxWidth] = useState<number>(EDITOR_MAX_WIDTH_PX);
+  useEffect(() => {
+    const el = canvasBoxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => setBoxWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const aspect = naturalSize.h / naturalSize.w;
-  const canvasWpx = EDITOR_MAX_WIDTH_PX;
-  const canvasHpx = Math.round(EDITOR_MAX_WIDTH_PX * aspect);
+  const canvasWpx = Math.min(EDITOR_MAX_WIDTH_PX, Math.floor(boxWidth) || EDITOR_MAX_WIDTH_PX);
+  const canvasHpx = Math.round(canvasWpx * aspect);
   const selected = fields.find((f) => f.key === selectedKey) ?? null;
 
   const addField = (type: FieldType) => {
@@ -616,13 +665,14 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
 
   // Same drag/resize gesture pattern as the Certificate Generator's field
   // editor, adapted to fractions (0..1 of canvas px) instead of inches.
-  const onPointerDown = (e: React.MouseEvent, f: FlyerField, mode: "move" | "resize") => {
+  // Pointer events (not mouse events) so dragging also works by touch.
+  const onPointerDown = (e: React.PointerEvent, f: FlyerField, mode: "move" | "resize") => {
     e.stopPropagation();
     setSelectedKey(f.key);
     const startX = e.clientX;
     const startY = e.clientY;
     const orig = f;
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       const dxFrac = (ev.clientX - startX) / canvasWpx;
       const dyFrac = (ev.clientY - startY) / canvasHpx;
       if (mode === "move") {
@@ -635,9 +685,14 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
         setFields((prev) => prev.map((field) => (field.key === orig.key ? { ...field, w, h } : field)));
       }
     };
-    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   const save = async () => {
@@ -671,11 +726,11 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-      <div>
+      <div ref={canvasBoxRef} className="min-w-0">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Template name (e.g. 'Birthday — Balloons')" className="w-full border rounded px-2 py-1.5 text-sm mb-3" />
 
         {!template && (
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
               const f = e.target.files?.[0] ?? null;
               setFile(f);
@@ -701,8 +756,9 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
           {fields.map((f) => (
             <div
               key={f.key}
-              onMouseDown={(e) => onPointerDown(e, f, "move")}
+              onPointerDown={(e) => onPointerDown(e, f, "move")}
               style={{
+                touchAction: "none",
                 position: "absolute",
                 left: f.x * canvasWpx, top: f.y * canvasHpx, width: f.w * canvasWpx, height: f.h * canvasHpx,
                 border: f.key === selectedKey ? "2px solid #d97706" : "1px dashed #64748b",
@@ -723,7 +779,7 @@ function TemplateEditor({ template, defaultOccasionType, onCancel, onSaved, setE
                 : f.type === "BRAND_TEXT" ? `{{brand:${f.brandKey}}}`
                 : f.type === "CLIENT_TEXT" ? `{{client:${f.clientKey}}}`
                 : `{{${f.key}}}`}
-              <div onMouseDown={(e) => onPointerDown(e, f, "resize")} style={{ position: "absolute", right: -4, bottom: -4, width: 10, height: 10, background: "#d97706", borderRadius: 2, cursor: "nwse-resize" }} />
+              <div onPointerDown={(e) => onPointerDown(e, f, "resize")} style={{ touchAction: "none", position: "absolute", right: -4, bottom: -4, width: 12, height: 12, background: "#d97706", borderRadius: 2, cursor: "nwse-resize" }} />
             </div>
           ))}
         </div>
@@ -1086,7 +1142,33 @@ function ClientBusinessesTab({ setError, setSuccess }: { setError: (s: string | 
       ) : !businesses.length ? (
         <p className="text-sm text-slate-500">No client businesses added yet.</p>
       ) : (
-        <div className="overflow-x-auto border rounded-lg">
+        <>
+        <div className="md:hidden space-y-2">
+          {businesses.map((b) => (
+            <div key={b.id} className="rounded-lg border bg-white p-3">
+              <div className="flex items-start gap-2.5">
+                {b.logoDataUrl ? <img src={b.logoDataUrl} className="h-9 w-9 shrink-0 rounded object-contain bg-slate-50 border" /> : <div className="h-9 w-9 shrink-0 rounded bg-slate-200" />}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-800 break-words">{b.businessName}</p>
+                    {b.isActive ? <span className="shrink-0 text-xs text-green-700">Active</span> : <span className="shrink-0 text-xs text-slate-400">Paused</span>}
+                  </div>
+                  <p className="text-xs text-slate-600">WhatsApp {b.whatsappNumber}</p>
+                  {b.phone && <p className="text-xs text-slate-500">Phone {b.phone}</p>}
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
+                <button disabled={sendingFor === b.id || !testFestivalId} onClick={() => void sendTest(b.id)} className="flex-1 whitespace-nowrap text-xs px-2 py-1.5 rounded border text-amber-700 border-amber-300 disabled:opacity-50 flex items-center justify-center gap-1">
+                  {sendingFor === b.id ? <Loader2 className="animate-spin" size={12} /> : <Send size={12} />} Send test
+                </button>
+                <button onClick={() => setEditing(b)} className="flex-1 whitespace-nowrap text-xs px-2 py-1.5 rounded border text-slate-600 flex items-center justify-center gap-1">
+                  <Pencil size={12} /> Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden md:block overflow-x-auto border rounded-lg">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
@@ -1120,6 +1202,7 @@ function ClientBusinessesTab({ setError, setSuccess }: { setError: (s: string | 
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -1393,7 +1476,39 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
       ) : !festivals.length ? (
         <p className="text-sm text-slate-500">No festivals added yet.</p>
       ) : (
-        <div className="overflow-x-auto border rounded-lg">
+        <>
+        <div className="md:hidden space-y-2">
+          {festivals.map((f) => (
+            <div key={f.id} className="rounded-lg border bg-white p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 break-words">{f.name}</p>
+                  <p className="text-xs text-slate-600">
+                    {f.isRecurring && f.month && f.day ? `${formatMonthDay(f.month, f.day)} (every year)` : f.oneTimeDate ? `${formatOneTimeDate(f.oneTimeDate)} (once)` : "—"}
+                  </p>
+                </div>
+                {f.isActive ? <span className="shrink-0 text-xs text-green-700">Active</span> : <span className="shrink-0 text-xs text-slate-400">Paused</span>}
+              </div>
+              <label className="mt-2 block text-xs text-slate-500">Own-customer template
+                <select value={f.templateId ?? ""} onChange={(e) => void setTemplateFor(f.id, e.target.value)} className="mt-0.5 w-full border rounded px-2 py-1 text-sm">
+                  <option value="">No template yet</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+              <label className="mt-2 block text-xs text-slate-500">Client Wish Card template
+                <select value={f.clientTemplateId ?? ""} onChange={(e) => void setClientTemplateFor(f.id, e.target.value)} className="mt-0.5 w-full border rounded px-2 py-1 text-sm">
+                  <option value="">None</option>
+                  {clientTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+              <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
+                <button onClick={() => void toggleActive(f)} className="flex-1 text-xs px-2 py-1.5 rounded border text-slate-600">{f.isActive ? "Pause" : "Activate"}</button>
+                <button onClick={() => void remove(f.id)} className="flex-1 text-xs px-2 py-1.5 rounded border text-red-600 border-red-200 flex items-center justify-center gap-1"><Trash2 size={12} /> Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden md:block overflow-x-auto border rounded-lg">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
@@ -1438,6 +1553,7 @@ function FestivalsTab({ setError }: { setError: (s: string | null) => void }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -1479,7 +1595,27 @@ function HistoryTab({ setError }: { setError: (s: string | null) => void }) {
         {!logs.length ? (
           <p className="text-sm text-slate-500">No wishes sent yet.</p>
         ) : (
-          <div className="overflow-x-auto border rounded-lg">
+          <>
+          <div className="md:hidden divide-y rounded-lg border bg-white">
+            {logs.map((l) => (
+              <div key={l.id} className="px-3 py-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 break-words">{l.person?.name ?? "—"}</p>
+                    <p className="text-xs text-slate-600">{OCCASION_LABEL[l.occasionType]}{l.festival ? ` — ${l.festival.name}` : ""}</p>
+                  </div>
+                  {l.status === "SUCCESS" ? (
+                    <span className="shrink-0 text-green-700 text-xs flex items-center gap-1"><CheckCircle2 size={12} /> Sent</span>
+                  ) : (
+                    <span className="shrink-0 text-red-600 text-xs font-semibold">Failed</span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500">{new Date(l.createdAt).toLocaleString("en-IN")} · to {l.recipientPhone}{l.sentToOwner ? " · owner copy" : ""}</p>
+                {l.status !== "SUCCESS" && l.errorMessage && <p className="mt-0.5 text-xs text-red-600 break-words">{l.errorMessage}</p>}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto border rounded-lg">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
                 <tr>
@@ -1511,6 +1647,7 @@ function HistoryTab({ setError }: { setError: (s: string | null) => void }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -1519,7 +1656,27 @@ function HistoryTab({ setError }: { setError: (s: string | null) => void }) {
         {!clientLogs.length ? (
           <p className="text-sm text-slate-500">No client wish cards sent yet.</p>
         ) : (
-          <div className="overflow-x-auto border rounded-lg">
+          <>
+          <div className="md:hidden divide-y rounded-lg border bg-white">
+            {clientLogs.map((l) => (
+              <div key={l.id} className="px-3 py-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 break-words">{l.clientBusiness?.businessName ?? "—"}</p>
+                    <p className="text-xs text-slate-600">{l.festival?.name ?? "—"}</p>
+                  </div>
+                  {l.status === "SUCCESS" ? (
+                    <span className="shrink-0 text-green-700 text-xs flex items-center gap-1"><CheckCircle2 size={12} /> Sent</span>
+                  ) : (
+                    <span className="shrink-0 text-red-600 text-xs font-semibold">Failed</span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500">{new Date(l.createdAt).toLocaleString("en-IN")} · to {l.recipientPhone}</p>
+                {l.status !== "SUCCESS" && l.errorMessage && <p className="mt-0.5 text-xs text-red-600 break-words">{l.errorMessage}</p>}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto border rounded-lg">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
                 <tr>
@@ -1549,6 +1706,7 @@ function HistoryTab({ setError }: { setError: (s: string | null) => void }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

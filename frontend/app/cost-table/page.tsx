@@ -1005,7 +1005,7 @@ export default function CostTablePage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200">
+        <div className="mobile-tabs flex border-b border-gray-200">
           {([
             { key: "table", label: "Cost Slabs", icon: IndianRupee },
             { key: "orders", label: "Orders Without Cost", icon: ShoppingCart, badge: ordersWithoutCost.length },
@@ -1018,6 +1018,7 @@ export default function CostTablePage() {
           ] as const).map(({ key, label, icon: Icon, badge }: { key: string; label: string; icon: React.ElementType; badge?: number }) => (
             <button
               key={key}
+              data-active={activeTab === key}
               onClick={() => setActiveTab(key as "table" | "orders" | "rates" | "increased" | "profit" | "checker" | "settings" | "agencyRates")}
               className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === key

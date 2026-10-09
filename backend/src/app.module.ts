@@ -7,6 +7,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { AuthModule } from './auth/auth.module';
 import { DispatchModule } from './dispatch/dispatch.module';
 import { OrdersModule } from './orders/orders.module';
+import { OffersModule } from './offers/offers.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductionModule } from './production/production.module';
 import { ProductsModule } from './products/products.module';
@@ -59,6 +60,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     ScheduleModule.forRoot(),
     AuthModule,
     OrdersModule,
+    OffersModule,
     ProductsModule,
     AccountsModule,
     ProductionModule,

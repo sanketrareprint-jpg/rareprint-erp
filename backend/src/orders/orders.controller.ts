@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -23,6 +24,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
+import { isOwnerEmail } from '../common/super-admin';
 
 type JwtUser = { id: string; role: string; email: string };
 type DesignFile = { filename: string; originalName: string; uploadedAt: string; size: number; base64?: string; mimeType?: string };
@@ -227,8 +229,19 @@ export class OrdersController {
       // Approval card (see dispatchProductPhoto/dispatchBillPhoto on Order).
       productPhoto?: string;
       billPhoto?: string;
+      // Dispatch on credit: no payment collected now, the unpaid balance
+      // stays on the party's outstanding. Super admin only.
+      isCredit?: boolean;
     },
   ) {
+    if (body.isCredit) {
+      if (!isOwnerEmail(req.user.email)) {
+        throw new ForbiddenException('Only the super admin can dispatch on credit');
+      }
+      if (body.isCod) {
+        throw new BadRequestException('A shipment cannot be both COD and on credit');
+      }
+    }
     return this.ordersService.submitDispatchBatch(body.orderIds, req.user.id, body);
   }
 
@@ -329,6 +342,7 @@ export class OrdersController {
           sizeInches: specs.size ?? "", gsm: Number(specs.gsm) || 0, paperType: specs.paper ?? "", sides: specs.sides ?? "",
           quantity: i.quantity, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal),
           artworkNotes: i.artworkNotes,
+          offerLocked: i.offerLocked,
         };
       }),
     };

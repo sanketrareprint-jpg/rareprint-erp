@@ -159,7 +159,8 @@ export default function SettingsPage() {
       if (!res.ok) { setError("Could not load settings"); return; }
       const data: CarrierCfg = await res.json();
       if (erpRes.ok) setErpConfig(await erpRes.json());
-      if (offerRes.ok) setOfferCodes(await offerRes.json());
+      // Order-level offers (DISCOUNT / FREE_ON_QTY / COMBO) live in the Offers tab.
+      if (offerRes.ok) setOfferCodes((await offerRes.json() as OfferCode[]).filter(oc => oc.offerType === "FREE_ITEM" || oc.offerType === "COMBO_DISCOUNT"));
       if (rulesRes.ok) setProductRules(await rulesRes.json());
       if (prodsRes.ok) {
         const pd = await prodsRes.json();
@@ -553,7 +554,7 @@ export default function SettingsPage() {
             <TicketPercent size={18} className="text-indigo-500" />
             <div>
               <h2 className="font-semibold text-gray-900 text-base">Offers &amp; Combos</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Define free-item offers and combo discounts. Agents apply these codes when creating orders — items with a code skip the margin check in accounts approval.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Define free-item offers and combo discounts. Agents apply these codes when creating orders — items with a code skip the margin check in accounts approval. Order-level offers with locked prices are managed in the Offers tab.</p>
             </div>
           </div>
 

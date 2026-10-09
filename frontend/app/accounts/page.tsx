@@ -128,6 +128,8 @@ type CustomerOutstanding = {
   paidAmount: number;
   outstandingAmount: number;
   reminderAmount: number;
+  creditAmount?: number;
+  creditOrderNumbers?: string;
   canSendReminder: boolean;
   orderCount: number;
   lastOrderDate: string;
@@ -2093,7 +2095,8 @@ export default function AccountsPage() {
       (!outstandingSeller || (row.sellerNames ?? "").split(", ").includes(outstandingSeller)) &&
       // When the user is actively searching (name/phone/email/order#), ignore the "Ready/Delivered"
       // default scoping so a customer with outstanding balance on ANY order status is still found.
-      (!!q || outstandingOrderStatus !== "READY_DELIVERED" || row.reminderAmount > 0) &&
+      // Credit dispatches (super admin) stay visible in the default view whatever their order status.
+      (!!q || outstandingOrderStatus !== "READY_DELIVERED" || row.reminderAmount > 0 || (row.creditAmount ?? 0) > 0) &&
       (outstandingOrderStatus === "READY_DELIVERED" || !outstandingOrderStatus || (row.orderStatuses ?? "").split(", ").includes(outstandingOrderStatus)) &&
       (!q ||
         row.customerName.toLowerCase().includes(q) ||
@@ -2134,7 +2137,7 @@ export default function AccountsPage() {
 
           {/* Tabs */}
           <div className="border-b border-slate-200">
-            <div className="flex flex-wrap gap-0">
+            <div className="mobile-tabs flex flex-wrap gap-0">
               {([
                 { key: "pending", label: "Order Approval", count: orders.length + cancelOrders.length },
                 { key: "accounting", label: "Billing & GST", count: salesInvoices.length + purchaseBills.length },
@@ -2148,7 +2151,7 @@ export default function AccountsPage() {
                 { key: "payment_history", label: "Payment History", count: 0 },
                 { key: "expense_tracker", label: "Expense Tracker", count: 0 },
               ] as { key: Tab; label: string; count: number }[]).map(t => (
-                <button key={t.key} onClick={() => setTab(t.key)}
+                <button key={t.key} data-active={tab === t.key} onClick={() => setTab(t.key)}
                   className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
                   {t.label}
                   {t.count > 0 && (
@@ -2375,15 +2378,16 @@ export default function AccountsPage() {
                   <div className={cx("flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100", "flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 bg-slate-50 border-b border-slate-100")}>
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-bold text-blue-700">{order.orderNo}</span>
-                      {order.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">TEST — approving/rejecting this has no billing impact</span>}
+                      {order.isTest && <span className="rounded-full bg-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold">{isNativeApp ? "TEST · no billing impact" : "TEST — approving/rejecting this has no billing impact"}</span>}
                       <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${ageColor(order.orderDate)}`}>{orderAge(order.orderDate)}</span>
-                      <span className="font-semibold text-slate-800">{order.customerName}</span>
+                      <span className={cx("font-semibold text-slate-800", "text-sm font-semibold text-slate-800")}>{order.customerName}</span>
                       {order.customerPhone && <span className="text-slate-400 text-xs">{order.customerPhone}</span>}
                       {order.customerGstNumber && <span className="rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-xs font-mono" title="Customer GSTIN">GST: {order.customerGstNumber}</span>}
                       {order.customerAddress && <span className="text-slate-500 text-xs">📍 {order.customerAddress}</span>}
                       {order.salesAgentName && <span className="rounded-full bg-blue-50 text-blue-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
                     </div>
-                    <span className="text-sm font-bold text-slate-800">{fmt(order.totalAmount)}</span>
+                    {/* Native: the footer's "Total:" already shows this, so skip the duplicate line. */}
+                    {!isNativeApp && <span className="text-sm font-bold text-slate-800">{fmt(order.totalAmount)}</span>}
                   </div>
 
                   <div className={cx("p-4 space-y-3", "p-3 space-y-2")}>
@@ -2417,8 +2421,8 @@ export default function AccountsPage() {
                                 )}
                                 <div className="text-[11px] font-mono text-blue-600">{item.sku}</div>
                                 {item.offerCode && (
-                                  <div className={`inline-flex items-center gap-1 mt-0.5 text-[11px] font-semibold rounded px-1.5 py-0.5 ${item.offerCode.offerType === "COMBO_DISCOUNT" ? "bg-amber-50 text-amber-700" : "bg-purple-50 text-purple-700"}`}>
-                                    {item.offerCode.offerType === "COMBO_DISCOUNT" ? "🎯" : "🎁"} {item.offerCode.code}
+                                  <div className={`inline-flex items-center gap-1 mt-0.5 text-[11px] font-semibold rounded px-1.5 py-0.5 ${item.offerCode.offerType === "COMBO_DISCOUNT" || item.offerCode.offerType === "COMBO" ? "bg-amber-50 text-amber-700" : item.offerCode.offerType === "DISCOUNT" ? "bg-green-50 text-green-700" : "bg-purple-50 text-purple-700"}`}>
+                                    {item.offerCode.offerType === "COMBO_DISCOUNT" || item.offerCode.offerType === "COMBO" ? "🎯" : item.offerCode.offerType === "DISCOUNT" ? "🏷️" : "🎁"} {item.offerCode.code}{item.offerCode.description ? ` — ${item.offerCode.description}` : ""}
                                     {item.offerCode.discountAmount && <span className="font-normal"> −₹{Number(item.offerCode.discountAmount).toLocaleString("en-IN")} combo</span>}
                                   </div>
                                 )}
@@ -2465,8 +2469,8 @@ export default function AccountsPage() {
                               )}
                               <p className="text-[11px] font-mono text-blue-600">{item.sku}</p>
                               {item.offerCode && (
-                                <div className={`inline-flex items-center gap-1 mt-0.5 text-[11px] font-semibold rounded px-1.5 py-0.5 ${item.offerCode.offerType === "COMBO_DISCOUNT" ? "bg-amber-50 text-amber-700" : "bg-purple-50 text-purple-700"}`}>
-                                  {item.offerCode.offerType === "COMBO_DISCOUNT" ? "🎯" : "🎁"} {item.offerCode.code}
+                                <div className={`inline-flex items-center gap-1 mt-0.5 text-[11px] font-semibold rounded px-1.5 py-0.5 ${item.offerCode.offerType === "COMBO_DISCOUNT" || item.offerCode.offerType === "COMBO" ? "bg-amber-50 text-amber-700" : item.offerCode.offerType === "DISCOUNT" ? "bg-green-50 text-green-700" : "bg-purple-50 text-purple-700"}`}>
+                                  {item.offerCode.offerType === "COMBO_DISCOUNT" || item.offerCode.offerType === "COMBO" ? "🎯" : item.offerCode.offerType === "DISCOUNT" ? "🏷️" : "🎁"} {item.offerCode.code}{item.offerCode.description ? ` — ${item.offerCode.description}` : ""}
                                   {item.offerCode.discountAmount && <span className="font-normal"> −₹{Number(item.offerCode.discountAmount).toLocaleString("en-IN")} combo</span>}
                                 </div>
                               )}
@@ -2547,9 +2551,11 @@ export default function AccountsPage() {
                             </div>
                           )}
                           {belowMinAdv && !hasPendingPay && (
-                            <div className="flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-300 px-3 py-2 text-xs text-yellow-800">
+                            <div className={cx("flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-300 px-3 py-2 text-xs text-yellow-800", "flex items-center gap-1.5 rounded-lg bg-yellow-50 border border-yellow-300 px-2.5 py-1.5 text-[11px] text-yellow-800")}>
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                              <span><strong>{advancePct.toFixed(1)}% advance received</strong> — minimum 40% required. Only super-admin can approve below this limit.</span>
+                              {isNativeApp
+                                ? <span><strong>{advancePct.toFixed(1)}% advance</strong> — below 40%, super-admin only</span>
+                                : <span><strong>{advancePct.toFixed(1)}% advance received</strong> — minimum 40% required. Only super-admin can approve below this limit.</span>}
                             </div>
                           )}
                           {hasMissingCost && (
@@ -2614,25 +2620,25 @@ export default function AccountsPage() {
                 <div className="flex justify-center py-16"><Loader2 className="h-7 w-7 animate-spin text-blue-600" /></div>
               ) : (
                 <>
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <div className={cx("grid gap-3 md:grid-cols-4", "grid mobile-grid-2 gap-2")}>
+                    <div className={cx("rounded-xl border border-blue-200 bg-blue-50 p-4", "rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-2")}>
                       <p className="text-xs font-semibold text-blue-700">Sales Invoices</p>
-                      <p className="mt-1 text-xl font-bold text-blue-900">{fmt(accountingSummary?.sales.total ?? 0)}</p>
+                      <p className={cx("mt-1 text-xl font-bold text-blue-900", "mt-0.5 text-base font-bold text-blue-900")}>{fmt(accountingSummary?.sales.total ?? 0)}</p>
                       <p className="text-[11px] text-blue-600">{accountingSummary?.sales.invoiceCount ?? 0} invoices</p>
                     </div>
-                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                    <div className={cx("rounded-xl border border-red-200 bg-red-50 p-4", "rounded-xl border border-red-200 bg-red-50 px-2.5 py-2")}>
                       <p className="text-xs font-semibold text-red-700">Receivable</p>
-                      <p className="mt-1 text-xl font-bold text-red-800">{fmt(accountingSummary?.sales.receivable ?? 0)}</p>
+                      <p className={cx("mt-1 text-xl font-bold text-red-800", "mt-0.5 text-base font-bold text-red-800")}>{fmt(accountingSummary?.sales.receivable ?? 0)}</p>
                       <p className="text-[11px] text-red-600">customer balance</p>
                     </div>
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className={cx("rounded-xl border border-amber-200 bg-amber-50 p-4", "rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2")}>
                       <p className="text-xs font-semibold text-amber-700">Payable</p>
-                      <p className="mt-1 text-xl font-bold text-amber-900">{fmt(accountingSummary?.purchases.payable ?? 0)}</p>
+                      <p className={cx("mt-1 text-xl font-bold text-amber-900", "mt-0.5 text-base font-bold text-amber-900")}>{fmt(accountingSummary?.purchases.payable ?? 0)}</p>
                       <p className="text-[11px] text-amber-700">{accountingSummary?.purchases.billCount ?? 0} purchase bills</p>
                     </div>
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className={cx("rounded-xl border border-emerald-200 bg-emerald-50 p-4", "rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2")}>
                       <p className="text-xs font-semibold text-emerald-700">Net GST Estimate</p>
-                      <p className="mt-1 text-xl font-bold text-emerald-900">{fmt(accountingSummary?.gst.netPayableEstimate ?? 0)}</p>
+                      <p className={cx("mt-1 text-xl font-bold text-emerald-900", "mt-0.5 text-base font-bold text-emerald-900")}>{fmt(accountingSummary?.gst.netPayableEstimate ?? 0)}</p>
                       <p className="text-[11px] text-emerald-700">output minus input</p>
                     </div>
                   </div>
@@ -2731,24 +2737,68 @@ export default function AccountsPage() {
                     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                       <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Sales Invoices</div>
                       <div className="max-h-80 overflow-auto">
+                        {isNativeApp ? (
+                          <div className="divide-y divide-slate-100">
+                            {salesInvoices.map(inv => (
+                              <div key={inv.id} className="px-3 py-2 text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-semibold text-blue-700">{inv.invoiceNumber}</span>{" "}
+                                    <span className="break-words text-slate-700">{inv.customerName}</span>
+                                  </div>
+                                  <span className="shrink-0 font-semibold text-slate-800">{fmt(inv.totalAmount)}</span>
+                                </div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-slate-500">
+                                  <span>GST <strong className="text-slate-700">{fmt(inv.taxAmount)}</strong></span>
+                                  <span>Bal <strong className="text-red-600">{fmt(inv.balanceAmount)}</strong></span>
+                                  <span>WA {inv.whatsappStatus}</span>
+                                  {inv.gstNumber && <span className="font-mono">{inv.gstNumber}</span>}
+                                  <a href={`/billing?invoiceId=${inv.id}`} className="ml-auto font-semibold text-blue-600">View →</a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Invoice</th><th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">GSTIN</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2 text-center">WA</th><th className="px-3 py-2 text-center">Billing</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                             {salesInvoices.map(inv => <tr key={inv.id}><td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}</td><td className="px-3 py-2">{inv.customerName}</td><td className="px-3 py-2 font-mono text-slate-500">{inv.gstNumber || "—"}</td><td className="px-3 py-2 text-right">{fmt(inv.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(inv.totalAmount)}</td><td className="px-3 py-2 text-right text-red-600">{fmt(inv.balanceAmount)}</td><td className="px-3 py-2 text-center">{inv.whatsappStatus}</td><td className="px-3 py-2 text-center"><a href={`/billing?invoiceId=${inv.id}`} className="text-blue-600 hover:underline font-semibold">View →</a></td></tr>)}
                           </tbody>
                         </table>
+                        )}
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                       <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Purchase Bills</div>
                       <div className="max-h-80 overflow-auto">
+                        {isNativeApp ? (
+                          <div className="divide-y divide-slate-100">
+                            {purchaseBills.map(b => (
+                              <div key={b.id} className="px-3 py-2 text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-semibold text-slate-800">{b.billNumber}</span>{" "}
+                                    <span className="break-words text-slate-700">{b.vendorName}</span>
+                                  </div>
+                                  <span className="shrink-0 font-semibold text-slate-800">{fmt(b.totalAmount)}</span>
+                                </div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-slate-500">
+                                  <span>GST <strong className="text-slate-700">{fmt(b.taxAmount)}</strong></span>
+                                  <span>Payable <strong className="text-amber-700">{fmt(b.balanceAmount)}</strong></span>
+                                  <span className="ml-auto">{b.status.replace("_", " ")}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Bill</th><th className="px-3 py-2 text-left">Vendor</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Payable</th><th className="px-3 py-2 text-center">Status</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                             {purchaseBills.map(b => <tr key={b.id}><td className="px-3 py-2 font-semibold text-slate-800">{b.billNumber}</td><td className="px-3 py-2">{b.vendorName}</td><td className="px-3 py-2 text-right">{fmt(b.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(b.totalAmount)}</td><td className="px-3 py-2 text-right text-amber-700">{fmt(b.balanceAmount)}</td><td className="px-3 py-2 text-center">{b.status.replace("_", " ")}</td></tr>)}
                           </tbody>
                         </table>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2757,24 +2807,63 @@ export default function AccountsPage() {
                     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                       <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Credit / Debit Notes</div>
                       <div className="max-h-72 overflow-auto">
+                        {isNativeApp ? (
+                          <div className="divide-y divide-slate-100">
+                            {accountingNotes.map(n => (
+                              <div key={n.id} className="px-3 py-2 text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-semibold">{n.noteNumber}</span>{" "}
+                                    <span className="text-[10px] text-slate-400">{n.noteType.replace("_", " ")}</span>
+                                  </div>
+                                  <span className="shrink-0 font-semibold">{fmt(n.totalAmount)}</span>
+                                </div>
+                                <p className="mt-0.5 break-words text-slate-600">{n.partyName}{n.reason ? ` · ${n.reason}` : ""}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Note</th><th className="px-3 py-2 text-left">Party</th><th className="px-3 py-2 text-left">Reason</th><th className="px-3 py-2 text-right">Amount</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                             {accountingNotes.map(n => <tr key={n.id}><td className="px-3 py-2 font-semibold">{n.noteNumber}<div className="text-[10px] text-slate-400">{n.noteType.replace("_", " ")}</div></td><td className="px-3 py-2">{n.partyName}</td><td className="px-3 py-2">{n.reason}</td><td className="px-3 py-2 text-right font-semibold">{fmt(n.totalAmount)}</td></tr>)}
                           </tbody>
                         </table>
+                        )}
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                       <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">Recent Ledger</div>
                       <div className="max-h-72 overflow-auto">
+                        {isNativeApp ? (
+                          <div className="divide-y divide-slate-100">
+                            {(accountingSummary?.recentLedger ?? []).map(row => (
+                              <div key={row.id} className="px-3 py-2 text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <span className="text-slate-500">{new Date(row.entryDate).toLocaleDateString("en-IN")}</span>{" "}
+                                    <span className="text-slate-800">{row.accountName}</span>
+                                  </div>
+                                  <span className="shrink-0 text-right">
+                                    {row.debitAmount ? <span>Dr <strong>{fmt(row.debitAmount)}</strong></span> : null}
+                                    {row.debitAmount && row.creditAmount ? " · " : null}
+                                    {row.creditAmount ? <span>Cr <strong>{fmt(row.creditAmount)}</strong></span> : null}
+                                    {!row.debitAmount && !row.creditAmount ? "—" : null}
+                                  </span>
+                                </div>
+                                {row.narration && <p className="mt-0.5 break-words text-[10px] text-slate-400">{row.narration}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                             {(accountingSummary?.recentLedger ?? []).map(row => <tr key={row.id}><td className="px-3 py-2 text-slate-500">{new Date(row.entryDate).toLocaleDateString("en-IN")}</td><td className="px-3 py-2">{row.accountName}<div className="text-[10px] text-slate-400">{row.narration}</div></td><td className="px-3 py-2 text-right">{row.debitAmount ? fmt(row.debitAmount) : "—"}</td><td className="px-3 py-2 text-right">{row.creditAmount ? fmt(row.creditAmount) : "—"}</td></tr>)}
                           </tbody>
                         </table>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2785,6 +2874,14 @@ export default function AccountsPage() {
 
           {tab === "outstanding" && (
             <div className="space-y-4">
+              {isNativeApp ? (
+                // One compact card, one row per stat, so large amounts never get squeezed.
+                <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 text-sm">
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs font-semibold text-red-600">Total Outstanding</span><strong className="text-red-700">{fmt(outstandingTotal)}</strong></div>
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs font-semibold text-slate-500">Customers</span><strong className="text-slate-900">{filteredOutstanding.length}</strong></div>
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs font-semibold text-green-600">Verified Paid</span><strong className="text-green-700">{fmt(outstandingPaidTotal)}</strong></div>
+                </div>
+              ) : (
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                   <p className="text-xs font-semibold text-red-600">Total Outstanding</p>
@@ -2799,6 +2896,7 @@ export default function AccountsPage() {
                   <p className="mt-1 text-xl font-bold text-green-700">{fmt(outstandingPaidTotal)}</p>
                 </div>
               </div>
+              )}
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="flex flex-wrap gap-3">
@@ -2871,6 +2969,9 @@ export default function AccountsPage() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="font-bold text-slate-900 truncate">{row.customerName}</p>
+                              {(row.creditAmount ?? 0) > 0 && (
+                                <span title={`On credit: ${row.creditOrderNumbers}`} className="inline-block rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Credit {fmt(row.creditAmount ?? 0)}</span>
+                              )}
                               <p className="text-xs text-slate-400 truncate">{row.customerPhone || row.customerEmail || "No contact"}</p>
                               {bookedCount > 0 && (
                                 <div className="flex items-center gap-1 mt-0.5">
@@ -3033,6 +3134,9 @@ export default function AccountsPage() {
                               </td>
                               <td className="px-3 py-2">
                                 <div className="font-bold text-slate-900">{row.customerName}</div>
+                                {(row.creditAmount ?? 0) > 0 && (
+                                  <span title={`On credit: ${row.creditOrderNumbers}`} className="inline-block rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Credit {fmt(row.creditAmount ?? 0)}</span>
+                                )}
                                 <div className="text-slate-400">{row.customerPhone || row.customerEmail || "No contact"}</div>
                                 {bookedCount > 0 && (
                                   <div className="flex items-center gap-1 mt-0.5">
@@ -3192,7 +3296,7 @@ export default function AccountsPage() {
                       )}
                       <span className="font-semibold text-slate-800">{order.customerName}</span>
                       {order.salesAgentName && <span className="rounded-full bg-purple-50 text-purple-700 px-1.5 py-0.5 text-xs">{order.salesAgentName}</span>}
-                      {order.paymentType && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.paymentType === "COD" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>{order.paymentType}</span>}
+                      {order.paymentType && <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${order.paymentType === "COD" ? "bg-orange-100 text-orange-700" : order.paymentType === "CREDIT" ? "bg-violet-100 text-violet-700" : "bg-green-100 text-green-700"}`}>{order.paymentType}</span>}
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-auto">
                       <span className={`text-xs font-bold whitespace-nowrap ${moneyColor(order.balanceDue)}`}>Balance: {fmt(order.balanceDue)}</span>
@@ -3233,7 +3337,27 @@ export default function AccountsPage() {
                           )}
                         </div>
                       </div>
-                      {/* Items table */}
+                      {/* Items table (native: wrapping cards — the table was clipped by the card's overflow-hidden) */}
+                      {isNativeApp ? (
+                        <div className="space-y-1.5">
+                          {order.items.map((item, i) => (
+                            <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="min-w-0 flex-1 break-words font-semibold text-slate-800">{item.productName}</p>
+                                <span className="shrink-0 font-semibold text-slate-800">{fmt(item.lineTotal)}</span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                <span><span className="text-slate-400">Size</span> <strong className="text-slate-700">{item.sizeInches || "—"}</strong></span>
+                                <span><span className="text-slate-400">GSM</span> <strong className="text-slate-700">{item.gsm || "—"}</strong></span>
+                                <span><span className="text-slate-400">Paper</span> <strong className="text-slate-700">{item.paper || "—"}</strong></span>
+                                <span><span className="text-slate-400">Sides</span> <strong className="text-slate-700">{item.sides === "SINGLE_SIDE" ? "Single" : item.sides === "DOUBLE_SIDE" ? "Double" : item.sides || "—"}</strong></span>
+                                <span><span className="text-slate-400">Print</span> <strong className="text-slate-700">{item.printingType || "—"}</strong></span>
+                                <span><span className="text-slate-400">Qty</span> <strong className="text-slate-700">{item.quantity}</strong></span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
                       <table className="w-full text-xs">
                         <thead><tr className="border-b border-slate-100 text-slate-500">
                           <th className="pb-1 text-left font-medium">Product</th>
@@ -3260,6 +3384,7 @@ export default function AccountsPage() {
                           ))}
                         </tbody>
                       </table>
+                      )}
                       {/* Photos uploaded by sales in Book Shipment */}
                       {(order.dispatchProductPhoto || order.dispatchBillPhoto) && (
                         <div className="flex gap-3">
@@ -3787,6 +3912,14 @@ export default function AccountsPage() {
               {tab === "vendors" && (
             <div className="space-y-4">
               {/* Summary cards */}
+              {isNativeApp ? (
+                // One compact card, one row per stat, so large amounts never get squeezed.
+                <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 text-sm">
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs text-slate-500">Total Work <span className="text-slate-400">· {filteredEntries.length} entries</span></span><strong className="text-slate-800">{fmt(totalAmount)}</strong></div>
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs text-green-600">Paid <span className="text-green-500">· {filteredEntries.filter(e => e.isPaid).length} entries</span></span><strong className="text-green-700">{fmt(totalPaid)}</strong></div>
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5"><span className="text-xs text-red-600">Unpaid <span className="text-red-500">· {filteredEntries.filter(e => !e.isPaid).length} entries</span></span><strong className="text-red-700">{fmt(totalUnpaid)}</strong></div>
+                </div>
+              ) : (
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-xl border border-slate-200 bg-white p-4 text-center">
                   <p className="text-xs text-slate-500 mb-1">Total Work</p>
@@ -3804,6 +3937,7 @@ export default function AccountsPage() {
                   <p className="text-xs text-red-500">{filteredEntries.filter(e => !e.isPaid).length} entries</p>
                 </div>
               </div>
+              )}
 
               {/* Filters */}
               <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-wrap gap-3 items-center">
@@ -4206,18 +4340,18 @@ export default function AccountsPage() {
                   ) : (
                     <>
                       {/* Summary cards */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 border-b border-slate-200">
-                        <div className="p-4 border-r border-slate-100 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Total Sales</p>
-                          <p className="text-lg font-bold text-slate-800">₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</p>
+                      <div className={cx("grid grid-cols-2 sm:grid-cols-4 gap-0 border-b border-slate-200", "grid mobile-grid-2 gap-0 border-b border-slate-200")}>
+                        <div className={cx("p-4 border-r border-slate-100 text-center", "px-2 py-2 border-r border-b border-slate-100 text-center")}>
+                          <p className={cx("text-sm text-slate-500 mb-1", "text-xs text-slate-500")}>Total Sales</p>
+                          <p className={cx("text-lg font-bold text-slate-800", "text-base font-bold text-slate-800")}>₹{commissionSheet.saleTotal.toLocaleString("en-IN")}</p>
                         </div>
-                        <div className="p-4 border-r border-slate-100 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Commission ({commissionSheet.commissionPct}%)</p>
-                          <p className="text-lg font-bold text-blue-700">₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</p>
+                        <div className={cx("p-4 border-r border-slate-100 text-center", "px-2 py-2 border-b border-slate-100 text-center")}>
+                          <p className={cx("text-sm text-slate-500 mb-1", "text-xs text-slate-500")}>Commission ({commissionSheet.commissionPct}%)</p>
+                          <p className={cx("text-lg font-bold text-blue-700", "text-base font-bold text-blue-700")}>₹{commissionSheet.commissionTotal.toLocaleString("en-IN")}</p>
                         </div>
-                        <div className="p-4 border-r border-slate-100 text-center">
-                          <p className="text-sm text-slate-500 mb-1">Bonus</p>
-                          <p className={`text-lg font-bold ${commissionSheet.bonus > 0 ? "text-green-700" : "text-slate-400"}`}>
+                        <div className={cx("p-4 border-r border-slate-100 text-center", "px-2 py-2 border-r border-slate-100 text-center")}>
+                          <p className={cx("text-sm text-slate-500 mb-1", "text-xs text-slate-500")}>Bonus</p>
+                          <p className={`${cx("text-lg", "text-base")} font-bold ${commissionSheet.bonus > 0 ? "text-green-700" : "text-slate-400"}`}>
                             ₹{commissionSheet.bonus.toLocaleString("en-IN")}
                           </p>
                           <p className="text-xs text-slate-400">
@@ -4226,9 +4360,9 @@ export default function AccountsPage() {
                              commissionSheet.saleTotal < 300000 ? "₹2k (₹2L met)" : "₹3k+ tier"}
                           </p>
                         </div>
-                        <div className="p-4 text-center bg-green-50">
-                          <p className="text-sm text-green-700 mb-1 font-semibold">TOTAL PAYABLE</p>
-                          <p className="text-2xl font-bold text-green-700">₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</p>
+                        <div className={cx("p-4 text-center bg-green-50", "px-2 py-2 text-center bg-green-50")}>
+                          <p className={cx("text-sm text-green-700 mb-1 font-semibold", "text-xs text-green-700 font-semibold")}>TOTAL PAYABLE</p>
+                          <p className={cx("text-2xl font-bold text-green-700", "text-lg font-bold text-green-700")}>₹{commissionSheet.totalPayable.toLocaleString("en-IN")}</p>
                         </div>
                       </div>
 
@@ -4814,7 +4948,9 @@ export default function AccountsPage() {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className="break-words text-sm text-slate-700">{entry.description}</p>
+                            {/* min-w-0 + break-all: bank descriptions are long unbroken strings
+                                (UPI/IMPS refs) that otherwise push the amount off the card. */}
+                            <p className="min-w-0 flex-1 break-all text-sm text-slate-700">{entry.description}</p>
                             <span className="shrink-0 text-sm font-bold text-red-600">-{fmt(entry.amount)}</span>
                           </div>
                           <p className="text-xs text-slate-400">{new Date(entry.txnDate).toLocaleDateString("en-IN")}</p>
@@ -5286,15 +5422,15 @@ export default function AccountsPage() {
               ) : (
                 <>
                   {/* Totals */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className={cx("grid grid-cols-3 gap-2", "grid mobile-grid-3 gap-1.5")}>
                     {[
-                      { label: "Total Accrued Expense", value: expenseTracker.total.accrued, color: "text-slate-800" },
+                      { label: isNativeApp ? "Accrued" : "Total Accrued Expense", value: expenseTracker.total.accrued, color: "text-slate-800" },
                       { label: "Paid", value: expenseTracker.total.paid, color: "text-green-700" },
                       { label: "Balance", value: expenseTracker.total.balance, color: "text-red-700" },
                     ].map(c => (
-                      <div key={c.label} className="rounded-xl border border-slate-300 bg-white px-4 py-3">
+                      <div key={c.label} className={cx("rounded-xl border border-slate-300 bg-white px-4 py-3", "rounded-xl border border-slate-300 bg-white px-2 py-1.5")}>
                         <p className="text-xs text-slate-500 font-medium">{c.label}</p>
-                        <p className={`text-xl font-bold mt-0.5 ${c.color}`}>{fmt(c.value)}</p>
+                        <p className={`${cx("text-xl", "text-[13px]")} font-bold mt-0.5 break-all ${c.color}`}>{fmt(c.value)}</p>
                       </div>
                     ))}
                   </div>
@@ -5345,7 +5481,7 @@ export default function AccountsPage() {
                                 {row.fullName} <span className="font-normal text-xs text-slate-400">({row.designation})</span>
                               </p>
                             </div>
-                            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                            <div className="mt-2 grid grid-cols-3 mobile-grid-3 gap-2 text-xs">
                               <div>
                                 <p className="text-slate-400">Accrued</p>
                                 <p className="font-mono font-semibold text-slate-700">{fmt(row.accrued)}</p>

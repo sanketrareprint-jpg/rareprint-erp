@@ -1063,12 +1063,12 @@ export default function ProductionPage() {
         <div className="flex h-[calc(100vh-1rem)] min-h-0 flex-col gap-3 overflow-hidden p-4 lg:p-5">
 
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="mobile-page-header flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900">Production</h1>
               <p className="text-xs text-slate-500 mt-0.5">Assign and track production for approved orders.</p>
             </div>
-            <div className="flex gap-2">
+            <div className="mobile-page-header-actions flex gap-2">
               <button onClick={() => setVendorModal(true)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">+ Vendor</button>
               {activeTab === "sheets" && <button onClick={() => setCreateSheetModal(true)} className="rounded-lg bg-cyan-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-cyan-700">+ New Sheet</button>}
               <button onClick={() => loadAll()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
@@ -1085,9 +1085,9 @@ export default function ProductionPage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit flex-wrap">
+          <div className="mobile-tabs flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit flex-wrap">
             {tabs.filter(tab => userRole === "INHOUSE" ? tab.key === "inhouse" : userRole === "DESIGNER" ? tab.key === "sheets" : true).map(tab => (
-              <button key={tab.key} onClick={() => { if (userRole !== "INHOUSE" && userRole !== "DESIGNER") setActiveTab(tab.key); }}
+              <button key={tab.key} data-active={activeTab === tab.key} onClick={() => { if (userRole !== "INHOUSE" && userRole !== "DESIGNER") setActiveTab(tab.key); }}
                 className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {tab.label}
                 <span className={`rounded-full px-1 py-0.5 text-[10px] font-semibold leading-none ${activeTab === tab.key ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"}`}>{tab.count}</span>

@@ -34,6 +34,12 @@ export class CrmService {
           take: 1,
         },
         _count: { select: { activities: true } },
+        // Last auto-dialer reply — the Kanban's reply columns (Busy, Rate problem, …).
+        dialerCalls: {
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: { outcome: true, notInterestedReason: true, startedAt: true },
+        },
       },
       orderBy: [{ isHot: 'desc' }, { score: 'desc' }, { updatedAt: 'desc' }],
     });
@@ -49,11 +55,12 @@ export class CrmService {
       duplicates.filter((d) => d._count.phone > 1).map((d) => d.phone),
     );
 
-    return leads.map((l) => ({
+    return leads.map(({ dialerCalls, ...l }) => ({
       ...l,
       isDuplicate: dupPhones.has(l.phone),
       nextFollowUp: l.followUps[0] ?? null,
       activityCount: l._count.activities,
+      lastDialerReply: dialerCalls[0] ?? null,
     }));
   }
 

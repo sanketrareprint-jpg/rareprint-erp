@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { offerLineCommission } from '../offers/offer-rules';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -85,6 +86,13 @@ export class CostTableService {
   private commissionForLine(order: any, item: any, costTotal: number) {
     const agentCategory = order.salesAgent?.salesAgentCategory ?? 'B';
     const saleTotal = Number(item.lineTotal);
+    // Offer-priced line: flat slab, not the profit-based rules below.
+    if (item.offerLocked) {
+      return offerLineCommission({
+        category: agentCategory, isSticker: this.isSticker(item), lineTotal: saleTotal,
+        rateTotal: this.rateTotal(item), belowTarget: false,
+      }).amount;
+    }
     const profit = saleTotal - costTotal;
     if (profit <= 0) return 0;
 
@@ -1107,6 +1115,16 @@ export class CostTableService {
         const costPerUnit = rawCost > unitPrice ? rawCost / costSlab.minQuantity : rawCost;
         const costItemTotal = costPerUnit * item.quantity;
         const profit      = lineTotal - costItemTotal;
+        // Offer-priced line: flat slab (reduced A/B rate below target).
+        if (item.offerLocked) {
+          const offerRateSlab = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
+          orderCommission += offerLineCommission({
+            category, isSticker: isSticker(item), lineTotal,
+            rateTotal: offerRateSlab ? Number(offerRateSlab.rateAmount) : lineTotal,
+            belowTarget: belowThreshold,
+          }).amount;
+          continue;
+        }
         if (profit <= 0) continue;
 
         const rateSlab    = matchSlab(rateMap.get(item.productId) ?? [], item.quantity);
@@ -1355,6 +1373,13 @@ export class CostTableService {
           calcMethod = `Sale − Agency Rate (₹${lineTotal.toFixed(0)} − ₹${agencyRate.toFixed(0)})`;
         } else if (!agentCategory) {
           calcMethod = 'No category';
+        } else if (item.offerLocked) {
+          // Offer-priced line: flat slab, never profit ÷ N (see offerLineCommission).
+          const offerCommission = offerLineCommission({
+            category: agentCategory, isSticker: sticker, lineTotal, rateTotal: rateAmt, belowTarget: belowThreshold,
+          });
+          commAmt = offerCommission.amount;
+          calcMethod = offerCommission.method;
         } else if (belowThreshold && (agentCategory === 'A' || agentCategory === 'B') && costSlab && grossProfit !== null && grossProfit > 0) {
           // Below ₹1.15L monthly threshold: reduced cap (7% A / 5% B), not a
           // flat rate — profit÷4 still applies whenever there's a real

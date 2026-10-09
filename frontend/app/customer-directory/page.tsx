@@ -238,12 +238,12 @@ function CustomerDirectoryContent() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-3 space-y-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="mobile-page-header flex items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-slate-900">Customer Directory</h1>
           <p className="text-xs text-slate-500">City/state customer search with purchase, invoice, agent, and product history.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="mobile-page-header-actions flex gap-2">
           <button onClick={syncLocations} disabled={syncing} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50">
             <RefreshCw size={14} /> {syncing ? "Syncing" : "Sync address"}
           </button>
@@ -253,7 +253,7 @@ function CustomerDirectoryContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="mobile-grid-2 grid grid-cols-4 gap-2">
         {[
           ["Customers", summary.customers.toLocaleString("en-IN")],
           ["Orders", summary.orders.toLocaleString("en-IN")],
@@ -285,12 +285,12 @@ function CustomerDirectoryContent() {
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Users size={16} className="text-blue-600" />
             <p className="text-xs font-bold text-slate-800">Import customer contacts from Excel CSV</p>
           </div>
-          <div className="flex gap-2">
+          <div className="mobile-page-header-actions flex gap-2">
             <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
               <Upload size={14} /> Upload CSV
             </button>
@@ -313,6 +313,71 @@ function CustomerDirectoryContent() {
         <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500">
           {loading && customers.length === 0 ? "Loading..." : `${customers.length} customers loaded${hasMore ? " - more available" : ""}`}
         </div>
+        {/* Phone: one card per customer; tap to expand purchase history (table below is md+). */}
+        <div className="md:hidden space-y-2 bg-slate-50 p-2">
+          {customers.map((customer) => {
+            const last = customer.orders[0];
+            const isExpanded = !!expanded[customer.id];
+            const location = [customer.city, customer.state, customer.pincode].filter(Boolean).join(", ");
+            return (
+              <div key={customer.id} className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                <button type="button" onClick={() => toggleExpanded(customer.id)} className="block w-full p-3 text-left">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900 break-words">{customer.businessName}</p>
+                      <p className="text-xs text-slate-500">{customer.phone || "-"}</p>
+                      {customer.email && <p className="truncate text-xs text-slate-500">{customer.email}</p>}
+                      {location && <p className="text-xs font-semibold text-slate-700">{location}</p>}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-bold text-emerald-600">{money(customer.totalRevenue)}</p>
+                      <p className="text-[11px] text-slate-500">{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""}</p>
+                    </div>
+                  </div>
+                  {last && (
+                    <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-600">
+                      <p>
+                        Last: {new Date(last.orderDate).toLocaleDateString("en-IN")}
+                        {last.invoiceNumber ? ` · Inv ${last.invoiceNumber}` : ""}
+                        {customer.lastSalesAgentName ? ` · ${customer.lastSalesAgentName}` : ""}
+                      </p>
+                      {last.products.length > 0 && (
+                        <p className="mt-0.5 line-clamp-2 text-slate-500">{last.products.map((item) => `${item.name} x${item.quantity}`).join(", ")}</p>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-blue-600">
+                    {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    {isExpanded ? "Hide purchase history" : "Purchase history & address"}
+                  </p>
+                </button>
+                {isExpanded && (
+                  <div className="space-y-2 border-t border-slate-100 bg-slate-50/70 p-3 text-xs">
+                    <p className="text-slate-700 break-words"><span className="font-semibold text-slate-500">Full address: </span>{customer.address || "No address saved"}</p>
+                    {historyLoading[customer.id] ? (
+                      <p className="py-2 text-center text-slate-400">Loading purchase history...</p>
+                    ) : customer.orders.length === 0 ? (
+                      <p className="py-2 text-center text-slate-400">No purchase history yet</p>
+                    ) : customer.orders.map((order) => (
+                      <div key={order.id} className="rounded-md border border-slate-200 bg-white p-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="min-w-0 font-semibold text-slate-800">{order.orderNo}{order.invoiceNumber ? ` · Inv ${order.invoiceNumber}` : ""}</p>
+                          <p className="shrink-0 font-bold text-slate-800">{money(order.total)}</p>
+                        </div>
+                        <p className="text-slate-500">{new Date(order.orderDate).toLocaleDateString("en-IN")}{order.salesAgentName ? ` · ${order.salesAgentName}` : ""}</p>
+                        <p className="text-slate-700 break-words">{order.products.map((item) => `${item.name} x${item.quantity}`).join(", ")}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!loading && customers.length === 0 && (
+            <p className="py-12 text-center text-sm text-slate-400">No customers found</p>
+          )}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
@@ -390,6 +455,7 @@ function CustomerDirectoryContent() {
             )}
           </tbody>
         </table>
+        </div>
         {hasMore && (
           <div className="border-t border-slate-200 p-2 text-center">
             <button onClick={() => load(page + 1, true)} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">

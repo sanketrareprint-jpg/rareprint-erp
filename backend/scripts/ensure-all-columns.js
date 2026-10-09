@@ -969,6 +969,35 @@ async function main() {
       }
     });
 
+    // ── Order-level offers (OfferCode rule columns + OrderItem.offerLocked) ─
+    // OrderItem is read with a broad `include` all over the app, so a missing
+    // offerLocked column would break every such query (same failure class as
+    // the pendingDispatchItemIds / dispatchedAt incidents above).
+    await safely('Order offers columns', async () => {
+      const COLUMNS = [
+        { table: 'OfferCode', name: 'discountMode', ddl: 'TEXT' },
+        { table: 'OfferCode', name: 'discountValue', ddl: 'DECIMAL(12,2)' },
+        { table: 'OfferCode', name: 'buyProductId', ddl: 'TEXT' },
+        { table: 'OfferCode', name: 'buyQuantity', ddl: 'INTEGER' },
+        { table: 'OfferCode', name: 'freeProductId', ddl: 'TEXT' },
+        { table: 'OfferCode', name: 'freeQuantity', ddl: 'INTEGER' },
+        { table: 'OfferCode', name: 'comboItems', ddl: 'JSONB' },
+        { table: 'OrderItem', name: 'offerLocked', ddl: 'BOOLEAN NOT NULL DEFAULT false' },
+      ];
+      for (const col of COLUMNS) {
+        const { rows } = await client.query(
+          `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+          [col.table, col.name],
+        );
+        if (rows.length > 0) {
+          console.log(`[ensure-all-columns] ${col.table}.${col.name}: already exists.`);
+          continue;
+        }
+        await client.query(`ALTER TABLE "${col.table}" ADD COLUMN IF NOT EXISTS "${col.name}" ${col.ddl};`);
+        console.log(`[ensure-all-columns] ${col.table}.${col.name}: added.`);
+      }
+    });
+
     console.log('[ensure-all-columns] All checks complete.');
   } finally {
     await client.end();

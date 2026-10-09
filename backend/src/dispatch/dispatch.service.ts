@@ -19,6 +19,7 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 // numeric-looking AWBs pulled from Excel, etc.).
 import { sheetToObjects, normalizeAwb, deriveOrderNumberCandidates, normalizeMobile, parseFlexibleDate } from '../remittance/remittance.service';
 import { resolveItemDetails } from '../common/resolve-item-details';
+import { isCreditDispatchLog } from '../common/credit-dispatch';
 import { syncInvoiceCourierCharge } from '../common/sync-invoice-courier-charge';
 
 type LocalRateQuote = {
@@ -595,6 +596,14 @@ export class DispatchService {
           take: 1,
           select: { awbNumber: true, carrierName: true, trackingNumber: true, notes: true },
         },
+        // Latest dispatch submission -- metadata.creditDispatch marks a
+        // super-admin credit dispatch (see common/credit-dispatch.ts).
+        statusLogs: {
+          where: { toStatus: OrderStatus.PENDING_DISPATCH_APPROVAL },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { metadata: true },
+        },
       },
     });
 
@@ -612,6 +621,9 @@ export class DispatchService {
       dispatchType: 'COURIER' | 'TRANSPORT' | 'BY_HAND' | 'SELF_COLLECTED';
       paymentType: 'COD' | 'PREPAID';
       isCod: boolean; codAmount: number | null; balanceDue: number;
+      // Display only: super admin dispatched on credit (paymentType stays
+      // PREPAID -- nothing is collected at the door either way).
+      isCredit: boolean;
       isSample: boolean; samplePaymentType: string | null;
       // Courier charge the sales agent entered while submitting this batch
       // for dispatch (see OrdersService.submitForDispatch/submitDispatchBatch)
@@ -695,6 +707,7 @@ export class DispatchService {
         isCod: effectiveIsCod,
         codAmount: effectiveIsCod ? paymentInfo.codAmount : null,
         balanceDue: paymentInfo.balanceDue,
+        isCredit: !isSample && !effectiveIsCod && isCreditDispatchLog(o.statusLogs[0]?.metadata),
         isSample,
         samplePaymentType,
         courierChargeQuoted: (o as any).courierChargeQuoted != null ? Number((o as any).courierChargeQuoted) : null,

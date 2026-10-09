@@ -237,7 +237,7 @@ export default function PaperInventoryPage() {
     <DashboardShell>
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="mobile-page-header flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Paper Inventory</h1>
             <p className="text-sm text-gray-500 mt-0.5">Purchase paper, track press-wise stock, manage printing allocation</p>
@@ -245,7 +245,7 @@ export default function PaperInventoryPage() {
           {tab === "po" && (
             <button
               onClick={() => setShowCreatePO(true)}
-              className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700"
+              className="flex items-center justify-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700"
             >
               <Plus className="h-4 w-4" /> New Purchase Order
             </button>
@@ -264,7 +264,7 @@ export default function PaperInventoryPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+        <div className="mobile-tabs flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
           {[
             { key: "po", label: "Purchase Orders", icon: Package },
             { key: "statement", label: "Press Statement", icon: BarChart3 },
@@ -273,6 +273,7 @@ export default function PaperInventoryPage() {
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
+              data-active={tab === key}
               onClick={() => setTab(key as typeof tab)}
               className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === key ? "bg-white text-brand-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
             >
@@ -387,7 +388,55 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit, onVerify }
     <div className="space-y-3">
       {purchaseOrders.map((po) => (
         <div key={po.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="flex items-center justify-between px-5 py-4">
+          {/* Phone header — stacked; the single-row header below is md+ only. */}
+          <div className="md:hidden cursor-pointer px-3 py-3" onClick={() => setExpanded(expanded === po.id ? null : po.id)}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900">{po.poNumber}</p>
+                {po.supplier && <p className="text-sm font-medium text-gray-700 break-words">{po.supplier.name}</p>}
+                {po.invoiceNumber && <p className="text-xs text-gray-500 break-all">Invoice: {po.invoiceNumber}</p>}
+              </div>
+              <div className="shrink-0 text-right">
+                {po.totalBillAmount != null && po.totalBillAmount > 0 && (
+                  <p className="text-sm font-bold text-gray-900">₹{po.totalBillAmount.toLocaleString("en-IN")}</p>
+                )}
+                <p className="text-xs text-gray-500">{po.items.length} item{po.items.length !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-gray-400">{new Date(po.createdAt).toLocaleDateString("en-IN")}</p>
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${po.status === "RECEIVED" ? "bg-green-100 text-green-700" : po.status === "DRAFT" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
+                {po.status}
+              </span>
+              {po.isVerified && (
+                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
+                  <CheckCircle className="h-3 w-3" /> Verified
+                </span>
+              )}
+              <div className="ml-auto flex items-center gap-1.5">
+                {!po.isVerified && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(po); }}
+                    className="flex items-center gap-1 whitespace-nowrap text-xs text-blue-600 border border-blue-200 px-2.5 py-1.5 rounded-lg font-medium"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </button>
+                )}
+                {isSanket && !po.isVerified && (
+                  <button
+                    onClick={async (e) => { e.stopPropagation(); setVerifying(po.id); await onVerify(po.id); setVerifying(null); }}
+                    disabled={verifying === po.id}
+                    className="flex items-center gap-1 whitespace-nowrap text-xs text-emerald-700 border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 rounded-lg font-medium disabled:opacity-50"
+                  >
+                    {verifying === po.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                    Verify
+                  </button>
+                )}
+                {expanded === po.id ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+              </div>
+            </div>
+          </div>
+          <div className="hidden md:flex items-center justify-between px-5 py-4">
             {/* Clickable left area — toggles expand */}
             <div
               className="flex items-center gap-4 flex-1 cursor-pointer"
@@ -444,7 +493,7 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit, onVerify }
           </div>
 
           {expanded === po.id && (
-            <div className="border-t border-gray-100 px-5 pb-5 pt-4">
+            <div className="border-t border-gray-100 px-3 pb-3 pt-3 md:px-5 md:pb-5 md:pt-4">
               {po.invoiceImagePath && (
                 <div className="mb-4">
                   <a href={`${apiBase}/uploads/${po.invoiceImagePath.replace("uploads/", "")}`} target="_blank" rel="noopener noreferrer"
@@ -456,7 +505,31 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit, onVerify }
               {po.notes && (
                 <p className="text-xs text-gray-500 mb-3 italic">{po.notes}</p>
               )}
-              <table className="w-full text-sm">
+              {/* Phone: one block per paper line instead of the 8-column table. */}
+              <div className="md:hidden space-y-2">
+                {po.items.map((item) => {
+                  const rate = (item as { ratePerUnit?: number }).ratePerUnit ?? 0;
+                  const amount = Number(item.unitQuantity) * Number(rate);
+                  return (
+                    <div key={item.id} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 text-sm font-semibold text-gray-900 break-words">{item.paperName}</p>
+                        <p className="shrink-0 text-sm font-semibold text-gray-900">{amount > 0 ? `₹${amount.toLocaleString("en-IN")}` : "—"}</p>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
+                        <span className="font-semibold text-gray-700">{item.gsm} GSM</span>
+                        <span className={`px-2 py-0.5 rounded-full ${qualityColor(item.quality)}`}>{QUALITY_LABELS[item.quality] ?? item.quality}</span>
+                        <span>{item.unitQuantity} {item.unit === "REAM" ? "Ream" : `Packet (${item.sheetsPerUnit} sh/pkt)`}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 text-xs text-gray-600">
+                        <span><span className="font-medium text-gray-900">{item.totalSheets.toLocaleString("en-IN")}</span> sheets{rate > 0 ? ` · ₹${Number(rate).toLocaleString("en-IN")}/${item.unit === "REAM" ? "ream" : "pkt"}` : ""}</span>
+                        <span className="font-medium text-blue-700">{item.press?.name}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <table className="hidden md:table w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
                     <th className="pb-2 font-medium">Paper</th>
@@ -496,7 +569,7 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit, onVerify }
               </table>
               {/* Bill summary footer */}
               {(po.totalBillAmount != null && po.totalBillAmount > 0) && (
-                <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end gap-6 text-sm">
+                <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
                   {(() => {
                     const itemsTotal = po.items.reduce((s, it) => s + Number(it.unitQuantity) * Number((it as any).ratePerUnit ?? 0), 0);
                     const transport = po.transportCharges ?? 0;
@@ -530,7 +603,7 @@ function StatementTab({ statements, loading, vendors, filterPressId, onFilterCha
 }) {
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <label className="text-sm font-medium text-gray-700">Filter by Press:</label>
         <MobileSelect
           value={filterPressId}
@@ -552,19 +625,40 @@ function StatementTab({ statements, loading, vendors, filterPressId, onFilterCha
         <div className="space-y-6">
           {statements.map((press) => (
             <div key={press.pressId} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-lg text-gray-900">{press.pressName}</h3>
+              <div className="px-3 py-3 md:px-6 md:py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-lg text-gray-900 break-words">{press.pressName}</h3>
                     {press.pressPhone && <p className="text-sm text-gray-500">{press.pressPhone}</p>}
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <div className="text-2xl font-bold text-blue-700">{press.totalSheets.toLocaleString("en-IN")}</div>
                     <div className="text-xs text-gray-500">total sheets in stock</div>
                   </div>
                 </div>
               </div>
-              <div className="px-6 py-4">
+              {/* Phone: one row per paper type instead of the 5-column table. */}
+              <div className="md:hidden divide-y divide-gray-100">
+                {press.items.map((item, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-semibold text-gray-900">{item.gsm} GSM</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${qualityColor(item.quality)}`}>{QUALITY_LABELS[item.quality as SheetQuality] ?? item.quality}</span>
+                      </p>
+                      <p className={`mt-0.5 flex items-center gap-1 text-xs font-medium ${item.balanceSheets <= 0 ? "text-red-600" : item.balanceSheets < 500 ? "text-orange-500" : "text-green-600"}`}>
+                        {item.balanceSheets <= 0 || item.balanceSheets < 500 ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                        {item.balanceSheets <= 0 ? "Out of stock" : item.balanceSheets < 500 ? "Low stock" : "Available"}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold text-gray-900">{item.balanceSheets.toLocaleString("en-IN")} <span className="text-xs font-normal text-gray-500">sheets</span></p>
+                      <p className="text-xs text-gray-500">{item.balanceReams} reams</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden md:block px-6 py-4">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
@@ -626,7 +720,7 @@ function HistoryTab({ transactions, loading, vendors, filterPressId, onFilterCha
 }) {
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <label className="text-sm font-medium text-gray-700">Filter by Press:</label>
         <MobileSelect
           value={filterPressId}
@@ -644,7 +738,35 @@ function HistoryTab({ transactions, loading, vendors, filterPressId, onFilterCha
           <p className="font-medium">No transactions yet</p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        <>
+        {/* Phone: one card per transaction instead of the 7-column table. */}
+        <div className="md:hidden space-y-2.5">
+          {transactions.map((tx) => (
+            <div key={tx.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 break-words">{tx.press.name}</p>
+                  <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="font-semibold text-gray-700">{tx.gsm} GSM</span>
+                    <span className={`px-1.5 py-0.5 rounded ${qualityColor(tx.quality)}`}>{QUALITY_LABELS[tx.quality as SheetQuality] ?? tx.quality}</span>
+                    <span className={`font-semibold ${txTypeColor(tx.transactionType)}`}>
+                      {tx.transactionType === "PURCHASE" ? "Purchase IN" : tx.transactionType === "PRINTING_DEDUCTION" ? "Print OUT" : "Adjustment"}
+                    </span>
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className={`tabular-nums text-sm font-bold ${tx.sheets > 0 ? "text-green-600" : "text-red-600"}`}>{tx.sheets > 0 ? "+" : ""}{tx.sheets.toLocaleString("en-IN")}</p>
+                  <p className="tabular-nums text-[11px] text-gray-500">Bal {tx.balanceAfter.toLocaleString("en-IN")}</p>
+                </div>
+              </div>
+              <p className="mt-2 border-t border-gray-100 pt-2 text-xs leading-relaxed text-gray-500 break-words">
+                {new Date(tx.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                {tx.notes ? ` · ${tx.notes}` : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="hidden md:block bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -681,6 +803,7 @@ function HistoryTab({ transactions, loading, vendors, filterPressId, onFilterCha
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -957,7 +1080,30 @@ function InHouseStickerTab({ balance, transactions, loading, apiFetch, onRefresh
         {transactions.length === 0 ? (
           <div className="text-center py-10 text-gray-400 text-sm">No transactions yet</div>
         ) : (
-          <table className="w-full text-sm">
+          <>
+          <div className="md:hidden space-y-2.5 p-3">
+            {transactions.map((tx) => (
+              <div key={tx.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className={`text-xs font-semibold ${txColor(tx.transactionType)}`}>{txLabel(tx.transactionType)}</p>
+                    <p className="text-xs text-gray-500">{new Date(tx.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className={`tabular-nums text-sm font-bold ${tx.sheets > 0 ? "text-green-600" : tx.sheets < 0 ? "text-red-600" : "text-yellow-600"}`}>{tx.sheets > 0 ? "+" : ""}{tx.sheets.toLocaleString("en-IN")}</p>
+                    <p className="text-[11px] text-gray-500">Bal {tx.balanceAfter.toLocaleString("en-IN")}</p>
+                  </div>
+                </div>
+                {(tx.referenceId || tx.notes) && (
+                  <p className="mt-1 text-xs text-gray-500 break-words">
+                    {tx.referenceId && <span className="font-medium text-blue-600 mr-2">{tx.referenceId}</span>}
+                    {tx.notes}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <table className="hidden md:table w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
@@ -990,6 +1136,7 @@ function InHouseStickerTab({ balance, transactions, loading, apiFetch, onRefresh
               ))}
             </tbody>
           </table>
+          </>
         )}
       </div>
     </div>

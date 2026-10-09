@@ -10,8 +10,16 @@ import { useRouter } from "next/navigation";
 
 type Product = { id: string; name: string; sku: string; gsm: number; paperType?: string; sizeInches: string; sides: string; };
 type CustomField = { id: string; label: string; type: "text" | "number" | "date" | "select" | "textarea"; required?: boolean; options?: string[] };
-type OfferCode = { id: string; code: string; description?: string; productIds: string[]; isActive: boolean };
-type LineItem = { productId: string; sizeInches: string; gsm: number; paperType: string; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string>; offerCodeId?: string };
+type OfferCode = { id: string; code: string; description?: string; productIds: string[]; isActive: boolean; offerType?: string };
+// fromOffer: line priced by the order-level offer — product, qty, rate and
+// amount are locked (the backend re-prices these lines on save).
+type LineItem = { productId: string; sizeInches: string; gsm: number; paperType: string; sides: string; quantity: number; unitPrice: number; lineTotal: number; specialInstructions: string; customFields: Record<string, string>; offerCodeId?: string; fromOffer?: boolean };
+// Order-level offer from the Offers tab (GET /offers/available).
+type OrderOffer = { id: string; code: string; description: string | null; offerType: "DISCOUNT" | "FREE_ON_QTY" | "COMBO" };
+type OfferPricedLine = { sourceIndex: number | null; productId: string; quantity: number; unitPrice: number; lineTotal: number; isFree: boolean };
+// Legacy per-item codes (Settings > Offers & Combos). Order-level offer
+// types are picked from the Offers field instead, never per item.
+const LEGACY_OFFER_TYPES = ["FREE_ITEM", "COMBO_DISCOUNT"];
 type CustomerSearchRow = {
   id: string;
   businessName: string;
@@ -102,6 +110,8 @@ const S = {
   section: { background: "white", borderRadius: "10px", border: "1px solid #e2e8f0", padding: "14px 16px", marginBottom: "10px" },
   sectionTitle: { fontSize: "12px", fontWeight: 700, color: "#0f172a", marginBottom: "10px", paddingBottom: "6px", borderBottom: "1px solid #f1f5f9" },
 };
+// Inputs on a line locked by the order's offer.
+const LOCKED = { background: "#f5f3ff", borderColor: "#c4b5fd", color: "#5b21b6", cursor: "not-allowed" };
 
 export default function CreateOrderPage() {
   const router = useRouter();
@@ -124,11 +134,16 @@ export default function CreateOrderPage() {
   const [citySearchOpen, setCitySearchOpen] = useState(false);
   const [citySearchLoading, setCitySearchLoading] = useState(false);
   const cityAutofilledByPincodeRef = useRef(false);
+  // Customer suggestions already fetched on this page, keyed by lowercased search text.
+  const customerSearchCacheRef = useRef(new Map<string, CustomerSearchRow[]>());
   const [pincodeLookupError, setPincodeLookupError] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
   const [orderFields, setOrderFields] = useState<CustomField[]>([]);
   const [itemFields, setItemFields] = useState<CustomField[]>([]);
   const [offerCodes, setOfferCodes] = useState<OfferCode[]>([]);
+  const [orderOffers, setOrderOffers] = useState<OrderOffer[]>([]);
+  const [appliedOffer, setAppliedOffer] = useState<OrderOffer | null>(null);
+  const [applyingOffer, setApplyingOffer] = useState(false);
   const [customOrderFields, setCustomOrderFields] = useState<Record<string, string>>({});
   const [orderNotes, setOrderNotes] = useState("");
   const [isSample, setIsSample] = useState(false);
@@ -147,11 +162,12 @@ export default function CreateOrderPage() {
   const needsDate = leadSource === "FB_AD" || leadSource === "AISENSY_CAMPAIGN";
 
   const load = useCallback(async () => {
-    const [res, cfgRes, offerRes, loyaltyCfgRes] = await Promise.all([
+    const [res, cfgRes, offerRes, loyaltyCfgRes, orderOffersRes] = await Promise.all([
       fetch(`${API_BASE_URL}/products`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/erp-config`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/erp-config/offer-codes`, { headers: getAuthHeaders() }),
       fetch(`${API_BASE_URL}/loyalty/config`, { headers: getAuthHeaders() }),
+      fetch(`${API_BASE_URL}/offers/available`, { headers: getAuthHeaders() }),
     ]);
     if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
     setProducts(await res.json());
@@ -162,8 +178,9 @@ export default function CreateOrderPage() {
     }
     if (offerRes.ok) {
       const codes: OfferCode[] = await offerRes.json();
-      setOfferCodes(codes.filter(c => c.isActive));
+      setOfferCodes(codes.filter(c => c.isActive && LEGACY_OFFER_TYPES.includes(c.offerType ?? "FREE_ITEM")));
     }
+    if (orderOffersRes.ok) setOrderOffers(await orderOffersRes.json());
     if (loyaltyCfgRes.ok) {
       const loyaltyCfg = await loyaltyCfgRes.json();
       if (typeof loyaltyCfg?.redemptionCapPct === "number") setRedemptionCapPct(loyaltyCfg.redemptionCapPct);
@@ -287,31 +304,50 @@ export default function CreateOrderPage() {
       return;
     }
 
+    const applyRows = (rows: CustomerSearchRow[]) => {
+      setCustomerMatches(rows);
+      // Only reopen if the user is still in the Name/Phone field — a search that
+      // lands after they tabbed away must not leave the list stuck open.
+      const stillSearching = document.activeElement?.hasAttribute("data-customer-search") ?? false;
+      setCustomerSearchOpen(rows.length > 0 && stillSearching);
+
+      if (byPhone.length >= 10) {
+        const exact = rows.find((row) => normalizePhone(row.phone ?? "") === byPhone);
+        if (exact) fillCustomer(exact);
+      }
+    };
+
+    // Already searched this exact text on this page (e.g. backspacing) — show it instantly.
+    const cacheKey = query.trim().toLowerCase();
+    const cached = customerSearchCacheRef.current.get(cacheKey);
+    if (cached) {
+      applyRows(cached);
+      return;
+    }
+
+    // Abort the previous keystroke's request so a slow, older response can
+    // never land after (and overwrite) the results for what's typed now.
+    const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setCustomerSearchLoading(true);
       try {
-        const params = new URLSearchParams({ search: query.trim(), limit: "8" });
-        const res = await fetch(`${API_BASE_URL}/customer-directory/search?${params.toString()}`, { headers: getAuthHeaders() });
+        // suggest=1 → lightweight rows only (no order history/revenue), see customer-directory.service.ts
+        const params = new URLSearchParams({ search: query.trim(), limit: "20", suggest: "1" });
+        const res = await fetch(`${API_BASE_URL}/customer-directory/search?${params.toString()}`, { headers: getAuthHeaders(), signal: controller.signal });
         if (res.status === 401) { clearAuth(); router.replace("/login"); return; }
         if (!res.ok) return;
         const data = await res.json();
         const rows: CustomerSearchRow[] = data.customers ?? [];
-        setCustomerMatches(rows);
-        // Only reopen if the user is still in the Name/Phone field — a search that
-        // lands after they tabbed away must not leave the list stuck open.
-        const stillSearching = document.activeElement?.hasAttribute("data-customer-search") ?? false;
-        setCustomerSearchOpen(rows.length > 0 && stillSearching);
-
-        if (byPhone.length >= 10) {
-          const exact = rows.find((row) => normalizePhone(row.phone ?? "") === byPhone);
-          if (exact) fillCustomer(exact);
-        }
+        customerSearchCacheRef.current.set(cacheKey, rows);
+        applyRows(rows);
+      } catch {
+        // Aborted by a newer keystroke, or a network error — keep the current list.
       } finally {
-        setCustomerSearchLoading(false);
+        if (!controller.signal.aborted) setCustomerSearchLoading(false);
       }
-    }, 250);
+    }, 120);
 
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); controller.abort(); setCustomerSearchLoading(false); };
   }, [customer.name, customer.phone, customer.customerId, selectedCustomerLabel, router]);
 
   // Pincode → City/State autofill, via India Post's public pincode API.
@@ -500,6 +536,62 @@ export default function CreateOrderPage() {
     return <input type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} value={value ?? ""} onChange={e => onChange(e.target.value)} style={S.input} />;
   }
 
+  // Lines as they'd be with no offer: a free-item/combo offer's own lines
+  // are dropped, a discount's lines become normal editable lines again.
+  function linesWithoutOffer(lines: LineItem[]): LineItem[] {
+    const kept = appliedOffer?.offerType === "DISCOUNT"
+      ? lines.map(li => ({ ...li, fromOffer: false }))
+      : lines.filter(li => !li.fromOffer);
+    return kept.length > 0 ? kept : [emptyLine()];
+  }
+
+  async function selectOffer(offerId: string) {
+    const baseLines = linesWithoutOffer(lineItems);
+    if (!offerId) { setLineItems(baseLines); setAppliedOffer(null); return; }
+    const offer = orderOffers.find(o => o.id === offerId);
+    if (!offer) return;
+    // Only lines with a product can be priced by a discount.
+    const pricedIndexes = baseLines.map((li, idx) => (li.productId && li.quantity > 0 ? idx : -1)).filter(idx => idx !== -1);
+    setApplyingOffer(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/offers/${offerId}/price`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ items: pricedIndexes.map(idx => ({ productId: baseLines[idx].productId, quantity: baseLines[idx].quantity })) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.message || "Could not apply this offer"); return; }
+      const priced: OfferPricedLine[] = data.lines ?? [];
+      if (offer.offerType === "DISCOUNT") {
+        const next = [...baseLines];
+        for (const line of priced) {
+          const idx = pricedIndexes[line.sourceIndex ?? -1];
+          if (idx === undefined) continue;
+          next[idx] = { ...next[idx], unitPrice: line.unitPrice, lineTotal: line.lineTotal, offerCodeId: "", fromOffer: true };
+        }
+        setLineItems(next);
+      } else {
+        const offerLines = priced.map(line => {
+          const prod = products.find(p => p.id === line.productId);
+          return {
+            ...emptyLine(),
+            productId: line.productId,
+            sizeInches: prod?.sizeInches ?? "",
+            gsm: prod?.gsm ?? 0,
+            paperType: prod?.paperType ?? "",
+            sides: prod?.sides ?? "SINGLE_SIDE",
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            lineTotal: line.lineTotal,
+            fromOffer: true,
+          };
+        });
+        setLineItems([...baseLines.filter(li => li.productId), ...offerLines]);
+      }
+      setAppliedOffer(offer);
+    } finally { setApplyingOffer(false); }
+  }
+
   const orderTotal = lineItems.reduce((sum, i) => sum + (i.lineTotal || i.quantity * i.unitPrice), 0);
   const maxRedeemablePoints = Math.max(0, Math.min(
     loyaltyPoints ?? 0,
@@ -573,7 +665,9 @@ export default function CreateOrderPage() {
             productionNotes: `Size: ${i.sizeInches}, GSM: ${i.gsm}${i.paperType ? `, Paper: ${i.paperType}` : ""}, Sides: ${i.sides}`,
             customFields:    i.customFields,
             offerCodeId:     i.offerCodeId || undefined,
+            fromOffer:       appliedOffer && i.fromOffer ? true : undefined,
           })),
+          offerId:    appliedOffer?.id,
           notes:      orderNotes || undefined,
           leadSource: leadSourceValue,
           isSample:   isSample || undefined,
@@ -893,6 +987,31 @@ export default function CreateOrderPage() {
           </div>
         </div>
 
+        {/* Offer — one order-level offer from the Offers tab */}
+        {orderOffers.length > 0 && (
+          <div className="create-order-section" style={{ ...S.section, background: appliedOffer ? "#f5f3ff" : "white", borderColor: appliedOffer ? "#c4b5fd" : "#e2e8f0" }}>
+            <p style={S.sectionTitle}>Offer</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <MobileSelect
+                value={appliedOffer?.id ?? ""}
+                onChange={v => void selectOffer(v)}
+                disabled={applyingOffer}
+                style={{ ...S.input, maxWidth: "460px" }}
+                options={[{ value: "", label: "— No offer —" }, ...orderOffers.map(o => ({ value: o.id, label: `${o.code}${o.description ? ` — ${o.description}` : ""}` }))]}
+              />
+              {applyingOffer && <Loader2 style={{ width: 14, height: 14, color: "#7c3aed" }} />}
+            </div>
+            {appliedOffer && (
+              <p style={{ margin: "6px 0 0", fontSize: "11px", color: "#5b21b6" }}>
+                {appliedOffer.offerType === "DISCOUNT"
+                  ? "Discount applied to the matching lines — their product, quantity and price are locked. Lines added afterwards are not discounted; select the offer again to include them."
+                  : "Offer items loaded with locked product, quantity and price. Choose “No offer” to remove them."}
+                {" "}This order will need Admin/Accounts approval as usual.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Products */}
         <div className="create-order-section" style={S.section}>
           <p style={S.sectionTitle}>Products / Line Items</p>
@@ -910,6 +1029,7 @@ export default function CreateOrderPage() {
                     placeholder="Search product..."
                     value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `[${products.find(p => p.id === item.productId)!.sku}] ${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
                     onChange={e => setProductSearch(s => ({ ...s, [idx]: e.target.value }))}
+                    disabled={item.fromOffer}
                     onFocus={e => { e.target.select(); setProductDropdownOpen(s => ({ ...s, [idx]: true })); }}
                     onBlur={() => setTimeout(() => { setProductDropdownOpen(s => ({ ...s, [idx]: false })); setProductSearch(s => { const n = {...s}; delete n[idx]; return n; }); }, 200)}
                     style={{ ...S.input, width: "100%" }}
@@ -948,14 +1068,15 @@ export default function CreateOrderPage() {
                     { value: "SINGLE_SIDE", label: "Single" },
                     { value: "DOUBLE_SIDE", label: "Double" },
                   ]} />
-                <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
-                <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} placeholder="0.00" style={S.input} />
+                <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} disabled={item.fromOffer} style={{ ...S.input, ...(item.fromOffer ? LOCKED : {}) }} />
+                <input type="number" min={0} value={item.fromOffer ? Number(item.unitPrice.toFixed(4)) : (item.unitPrice || "")} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} disabled={item.fromOffer} placeholder="0.00" style={{ ...S.input, ...(item.fromOffer ? LOCKED : {}) }} />
                 <input type="number" min={0}
-                  value={item.lineTotal || (item.quantity * item.unitPrice) || ""}
+                  value={item.fromOffer ? item.lineTotal : (item.lineTotal || (item.quantity * item.unitPrice) || "")}
                   onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
+                  disabled={item.fromOffer}
                   placeholder="Total ₹"
-                  style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }} />
-                {lineItems.length > 1 ? (
+                  style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d", ...(item.fromOffer ? { borderColor: "#c4b5fd", cursor: "not-allowed" } : {}) }} />
+                {item.fromOffer ? <div title="Locked by the offer" style={{ fontSize: "12px", textAlign: "center" }}>🔒</div> : lineItems.length > 1 ? (
                   <button onClick={() => setLineItems(p => p.filter((_, i) => i !== idx))}
                     style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", padding: "2px" }}>
                     <Trash2 style={{ width: 14, height: 14 }} />
@@ -968,7 +1089,12 @@ export default function CreateOrderPage() {
                   placeholder={`Item ${idx + 1} — special instructions (optional)`}
                   style={{ ...S.input, background: "#fffbeb", borderColor: "#fde68a", fontSize: "11px" }} />
                 {/* Offer code selector — only shown when active codes exist for this product */}
-                {(() => {
+                {item.fromOffer && appliedOffer && (
+                  <span style={{ fontSize: "10px", fontWeight: 700, color: "#5b21b6", background: "#ede9fe", borderRadius: "4px", padding: "3px 6px", whiteSpace: "nowrap" }}>
+                    {appliedOffer.code}{item.lineTotal === 0 ? " · FREE" : ""}
+                  </span>
+                )}
+                {!item.fromOffer && (() => {
                   const applicable = offerCodes.filter(oc => oc.productIds.length === 0 || oc.productIds.includes(item.productId));
                   if (applicable.length === 0) return null;
                   return (

@@ -34,6 +34,12 @@ import {
   RECENT_CALL_SKIP_MINUTES,
   agentStatsSince,
   isDeskResponseCurrent,
+  isEndCallRequestCurrent,
+  describeReplyProducts,
+  NI_LIST_REASONS,
+  NOT_INTERESTED_REASON_LABELS,
+  NotInterestedReason,
+  ReplyProduct,
   outcomeCampaignParams,
   parseDeskResponse,
   parseDialerList,
@@ -50,7 +56,8 @@ import {
 type DialerUser = { id: string; role: string };
 type QueueSource =
   | 'FOLLOW_UP_DUE' | 'FRESH_LEAD' | 'NOT_CONTACTED' | 'OLD_CALLBACK'
-  | 'INTERESTED' | 'NOT_INTERESTED' | 'BUSY' | 'NOT_ANSWERED' // single-list dialing
+  | 'INTERESTED' | 'NOT_INTERESTED' | 'BUSY' | 'NOT_ANSWERED' | 'CALLBACK' // single-list dialing
+  | 'NI_RATE' | 'NI_QUANTITY' | 'NI_TRUST' | 'NI_NO_REQUIREMENT'
   | 'LIVE'; // GET /dialer/live (the number the phone is on now)
 
 interface Candidate {
@@ -66,6 +73,7 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 10; // up to 1,000 candidates checked per tier before moving on
 const RECYCLE_DAYS = 30;
 const MAX_SKIP_PHONES = 200; // cap on the ?skip= list from one session
+const CALL_HISTORY_LIMIT = 15; // PC popup: past calls shown for the number on the line
 const CALL_ACTIVITY_TYPES: ActivityType[] = [ActivityType.CALL_MADE, ActivityType.CALL_MISSED, ActivityType.CALL_BUSY];
 
 const OUTCOME_LABELS: Record<DialerOutcome, string> = {
@@ -126,6 +134,11 @@ export class DialerService {
       NOT_INTERESTED: [(skip) => this.statusCandidates('NOT_INTERESTED', LeadStatus.LOST, queueAgentId, skip)],
       BUSY: [(skip) => this.lastOutcomeCandidates('BUSY', DialerOutcome.BUSY, queueAgentId, skip)],
       NOT_ANSWERED: [(skip) => this.lastOutcomeCandidates('NOT_ANSWERED', DialerOutcome.NOT_ANSWERED, queueAgentId, skip)],
+      CALLBACK: [(skip) => this.lastOutcomeCandidates('CALLBACK', DialerOutcome.CALLBACK, queueAgentId, skip)],
+      NI_RATE: [(skip) => this.lastOutcomeCandidates('NI_RATE', DialerOutcome.NOT_INTERESTED, queueAgentId, skip, NI_LIST_REASONS.NI_RATE)],
+      NI_QUANTITY: [(skip) => this.lastOutcomeCandidates('NI_QUANTITY', DialerOutcome.NOT_INTERESTED, queueAgentId, skip, NI_LIST_REASONS.NI_QUANTITY)],
+      NI_TRUST: [(skip) => this.lastOutcomeCandidates('NI_TRUST', DialerOutcome.NOT_INTERESTED, queueAgentId, skip, NI_LIST_REASONS.NI_TRUST)],
+      NI_NO_REQUIREMENT: [(skip) => this.lastOutcomeCandidates('NI_NO_REQUIREMENT', DialerOutcome.NOT_INTERESTED, queueAgentId, skip, NI_LIST_REASONS.NI_NO_REQUIREMENT)],
     };
     const tiers = tiersByList[list];
 
@@ -309,16 +322,18 @@ export class DialerService {
   }
 
   /**
-   * Busy / Not answered lists: numbers on the agent's Leads / Not Contacted
-   * contacts whose most recent auto-dialer call (by anyone) ended with that
-   * outcome. Won leads are left out. Longest-waiting first.
+   * Busy / Not answered / Callback / Not-interested-reason lists: numbers on
+   * the agent's Leads / Not Contacted contacts whose most recent auto-dialer
+   * call (by anyone) ended with that outcome (and, when given, that
+   * not-interested reason). Won leads are left out. Longest-waiting first.
    */
-  private async lastOutcomeCandidates(source: QueueSource, outcome: DialerOutcome, agentId: string, skip: number) {
+  private async lastOutcomeCandidates(source: QueueSource, outcome: DialerOutcome, agentId: string, skip: number, reason?: NotInterestedReason) {
+    const reasonFilter = reason ? Prisma.sql`AND t."notInterestedReason" = ${reason}` : Prisma.empty;
     const rows = await this.prisma.$queryRaw<Array<{ phone: string; leadId: string | null; importedContactId: string | null }>>(Prisma.sql`
       SELECT t."phone", t."leadId", t."importedContactId"
       FROM (
         SELECT DISTINCT ON (dc."phone")
-          dc."phone", dc."leadId", dc."importedContactId", dc."outcome", dc."startedAt",
+          dc."phone", dc."leadId", dc."importedContactId", dc."outcome", dc."notInterestedReason", dc."startedAt",
           l."status" AS "leadStatus", ic."pipelineStatus" AS "contactStatus"
         FROM "DialerCall" dc
         LEFT JOIN "Lead" l ON l."id" = dc."leadId"
@@ -327,6 +342,7 @@ export class DialerService {
         ORDER BY dc."phone", dc."startedAt" DESC
       ) t
       WHERE t."outcome"::text = ${outcome}
+        ${reasonFilter}
         AND COALESCE(t."leadStatus"::text, t."contactStatus"::text, '') <> ${LeadStatus.WON}
       ORDER BY t."startedAt" ASC
       OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
@@ -480,11 +496,14 @@ export class DialerService {
       if (!belongs) throw new BadRequestException('followUpId does not belong to this lead/contact');
     }
 
+    const products = await this.resolveReplyProducts(v.products);
     const conclusive = isConclusiveOutcome(v.outcome);
     const description = [
       `${DIALER_ACTIVITY_PREFIX} — ${OUTCOME_LABELS[v.outcome]}`,
+      v.notInterestedReason ? NOT_INTERESTED_REASON_LABELS[v.notInterestedReason] : null,
       v.answered ? formatDuration(v.durationSec) : 'not answered',
       v.callbackAt ? `callback ${v.callbackAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })}` : null,
+      products.length ? describeReplyProducts(products) : null,
       v.note,
     ].filter(Boolean).join(' · ');
 
@@ -501,6 +520,8 @@ export class DialerService {
           outcome: v.outcome,
           note: v.note,
           callbackAt: v.callbackAt,
+          notInterestedReason: v.notInterestedReason,
+          products: products.length ? (products as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         },
       });
 
@@ -610,6 +631,17 @@ export class DialerService {
       .catch((e) => this.logger.error(`Dialer outcome WhatsApp failed for ${v.phone}: ${e}`));
 
     return result;
+  }
+
+  /** Checks every product exists and fills in its name (kept on the call, so a later rename doesn't change history). */
+  private async resolveReplyProducts(products: ReplyProduct[]): Promise<ReplyProduct[]> {
+    if (!products.length) return [];
+    const ids = [...new Set(products.map((p) => p.productId))];
+    const found = await this.prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+    const names = new Map(found.map((p) => [p.id, p.name]));
+    const missing = ids.filter((id) => !names.has(id));
+    if (missing.length) throw new BadRequestException('A chosen product no longer exists — pick it again');
+    return products.map((p) => ({ productId: p.productId, productName: names.get(p.productId)!, quantity: p.quantity, rate: p.rate }));
   }
 
   /**
@@ -840,11 +872,15 @@ export class DialerService {
     const lock = await this.prisma.dialerLock.findFirst({
       where: { agentId: user.id, lockedAt: { gte: new Date(now.getTime() - LIVE_CALL_MAX_MINUTES * 60 * 1000) } },
       orderBy: { lockedAt: 'desc' },
-      select: { phone: true, leadId: true, importedContactId: true, lockedAt: true, deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true },
+      select: {
+        phone: true, leadId: true, importedContactId: true, lockedAt: true,
+        deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true,
+        deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true,
+      },
     });
     if (!lock || (!lock.leadId && !lock.importedContactId)) return { item: null };
 
-    const [item, recentCalls, agent] = await Promise.all([
+    const [item, dialerCalls, crmCalls, agent] = await Promise.all([
       this.describe(
         { source: 'LIVE', phone: lock.phone, leadId: lock.leadId, importedContactId: lock.importedContactId, followUpId: null, scheduledAt: null },
         now,
@@ -852,25 +888,63 @@ export class DialerService {
       this.prisma.dialerCall.findMany({
         where: { phone: lock.phone },
         orderBy: { startedAt: 'desc' },
-        take: 5,
-        select: { startedAt: true, outcome: true, note: true, durationSec: true, answered: true, agent: { select: { fullName: true } } },
+        take: CALL_HISTORY_LIMIT,
+        select: {
+          startedAt: true, outcome: true, note: true, durationSec: true, answered: true,
+          notInterestedReason: true, products: true, agent: { select: { fullName: true } },
+        },
       }),
+      // Calls logged from the CRM (not the auto dialer, which is listed above).
+      lock.leadId
+        ? this.prisma.leadActivity.findMany({
+            where: { leadId: lock.leadId, type: { in: CALL_ACTIVITY_TYPES }, NOT: { description: { startsWith: DIALER_ACTIVITY_PREFIX } } },
+            orderBy: { createdAt: 'desc' },
+            take: CALL_HISTORY_LIMIT,
+            select: { createdAt: true, type: true, description: true, createdBy: { select: { fullName: true } } },
+          })
+        : Promise.resolve([]),
       this.prisma.user.findUnique({ where: { id: user.id }, select: { fullName: true, phone: true } }),
     ]);
     if (!item) return { item: null };
+
+    const callHistory = [
+      ...dialerCalls.map((c) => ({
+        via: 'DIALER' as const, at: c.startedAt, outcome: c.outcome as string | null, note: c.note,
+        durationSec: c.durationSec, answered: c.answered, agentName: c.agent.fullName,
+        notInterestedReason: c.notInterestedReason, products: c.products,
+      })),
+      ...crmCalls.map((a) => ({
+        via: 'CRM' as const, at: a.createdAt, outcome: null, note: a.description,
+        durationSec: null, answered: a.type === ActivityType.CALL_MADE, agentName: a.createdBy.fullName,
+        notInterestedReason: null, products: null,
+      })),
+    ]
+      .sort((a, b) => b.at.getTime() - a.at.getTime())
+      .slice(0, CALL_HISTORY_LIMIT);
 
     return {
       item: {
         ...item,
         lockedAt: lock.lockedAt,
-        deskResponse: isDeskResponseCurrent(lock)
-          ? { outcome: lock.deskOutcome, note: lock.deskNote, callbackAt: lock.deskCallbackAt, submittedAt: lock.deskSubmittedAt }
-          : null,
-        recentCalls: recentCalls.map((c) => ({
-          startedAt: c.startedAt, outcome: c.outcome, note: c.note, durationSec: c.durationSec, answered: c.answered, agentName: c.agent.fullName,
-        })),
+        deskResponse: isDeskResponseCurrent(lock) ? this.deskResponseOf(lock) : null,
+        endCallRequested: isEndCallRequestCurrent(lock),
+        callHistory,
         agent: { name: agent?.fullName ?? '', phone: agent?.phone ?? '' },
       },
+    };
+  }
+
+  private deskResponseOf(lock: {
+    deskOutcome: DialerOutcome | null; deskNote: string | null; deskCallbackAt: Date | null; deskSubmittedAt: Date | null;
+    deskNotInterestedReason: string | null; deskProducts: Prisma.JsonValue;
+  }) {
+    return {
+      outcome: lock.deskOutcome,
+      note: lock.deskNote,
+      callbackAt: lock.deskCallbackAt,
+      submittedAt: lock.deskSubmittedAt,
+      notInterestedReason: lock.deskNotInterestedReason,
+      products: Array.isArray(lock.deskProducts) ? lock.deskProducts : [],
     };
   }
 
@@ -884,25 +958,52 @@ export class DialerService {
     const parsed = parseDeskResponse(body);
     if ('error' in parsed) throw new BadRequestException(parsed.error);
     const v = parsed.value;
+    const products = await this.resolveReplyProducts(v.products);
     const res = await this.prisma.dialerLock.updateMany({
       where: { phone: v.phone, agentId: user.id },
-      data: { deskOutcome: v.outcome, deskNote: v.note, deskCallbackAt: v.callbackAt, deskSubmittedAt: new Date() },
+      data: {
+        deskOutcome: v.outcome, deskNote: v.note, deskCallbackAt: v.callbackAt, deskSubmittedAt: new Date(),
+        deskNotInterestedReason: v.notInterestedReason,
+        deskProducts: products.length ? (products as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+      },
     });
     if (res.count === 0) throw new NotFoundException('This call was already saved on the phone, or the dialer moved on');
     return { ok: true };
   }
 
-  /** The phone asks whether the PC has answered for the number it's on. */
+  /**
+   * The phone asks whether the PC has answered for the number it's on, and
+   * whether "End call" was pressed there. { response: null } when not answered.
+   */
   async getDeskResponse(user: DialerUser, phoneRaw?: string) {
     this.assertDialerRole(user);
     const phone = normalizeDialPhone(phoneRaw);
     if (phone.length < 6) throw new BadRequestException('phone is required');
     const lock = await this.prisma.dialerLock.findFirst({
       where: { phone, agentId: user.id },
-      select: { lockedAt: true, deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true },
+      select: {
+        lockedAt: true, deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true,
+        deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true,
+      },
     });
-    if (!lock || !isDeskResponseCurrent(lock)) return { response: null };
-    return { response: { outcome: lock.deskOutcome, note: lock.deskNote, callbackAt: lock.deskCallbackAt, submittedAt: lock.deskSubmittedAt } };
+    if (!lock) return { response: null, endCallRequested: false };
+    return {
+      response: isDeskResponseCurrent(lock) ? this.deskResponseOf(lock) : null,
+      endCallRequested: isEndCallRequestCurrent(lock),
+    };
+  }
+
+  /** PC popup "End call": the phone hangs up the call it's on for this number. */
+  async requestEndCall(user: DialerUser, body: any) {
+    this.assertDialerRole(user);
+    const phone = normalizeDialPhone(body?.number ?? body?.phone);
+    if (phone.length < 6) throw new BadRequestException('number is required');
+    const res = await this.prisma.dialerLock.updateMany({
+      where: { phone, agentId: user.id },
+      data: { deskEndCallAt: new Date() },
+    });
+    if (res.count === 0) throw new NotFoundException('This call was already saved on the phone, or the dialer moved on');
+    return { ok: true };
   }
 
   // ───────────────────────────────────────────────────────────────────────

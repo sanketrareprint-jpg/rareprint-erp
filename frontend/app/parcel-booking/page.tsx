@@ -259,7 +259,7 @@ export default function ParcelBookingPage() {
         <div style={S.section}>
           <p style={S.sectionTitle}>Products Being Sent</p>
           {lineItems.map((item, idx) => (
-            <div key={idx} style={{ display: "grid", gridTemplateColumns: "2fr 80px 95px 28px", gap: "6px", marginBottom: "6px", alignItems: "center" }}>
+            <div key={idx} className="mobile-product-line" style={{ display: "grid", gridTemplateColumns: "2fr 80px 95px 28px", gap: "6px", marginBottom: "6px", alignItems: "center" }}>
               <div style={{ position: "relative" }}>
                 <input
                   type="text"
@@ -285,8 +285,14 @@ export default function ParcelBookingPage() {
                   </div>
                 )}
               </div>
-              <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
-              <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} placeholder="Value ₹ (optional)" style={S.input} />
+              <div>
+                <span className="mb-0.5 block text-[11px] font-semibold uppercase text-slate-500 md:hidden">Qty</span>
+                <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
+              </div>
+              <div>
+                <span className="mb-0.5 block text-[11px] font-semibold uppercase text-slate-500 md:hidden">Value ₹</span>
+                <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} placeholder="Value ₹ (optional)" style={S.input} />
+              </div>
               {lineItems.length > 1 ? (
                 <button onClick={() => setLineItems(p => p.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444" }}>
                   <Trash2 style={{ width: 14, height: 14 }} />

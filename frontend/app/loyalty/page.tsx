@@ -280,7 +280,7 @@ export default function LoyaltyPage() {
               <p className="text-xs text-gray-500">Look up a customer&apos;s wallet by phone, or tune earn/redeem settings</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="mobile-page-header-actions flex items-center gap-2">
             <button
               onClick={handleBulkSend}
               disabled={bulkSending}
@@ -552,7 +552,7 @@ export default function LoyaltyPage() {
               value={phoneInput}
               onChange={(e) => setPhoneInput(e.target.value)}
               placeholder="e.g. 9876543210"
-              className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-pink-400"
+              className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-pink-400"
             />
             <button
               type="submit"

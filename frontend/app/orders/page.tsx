@@ -366,6 +366,7 @@ export default function OrdersPage() {
   const [customerError, setCustomerError] = useState<string | null>(null);
   const [bookingForm, setBookingForm] = useState({
     courierCharges: "", isCod: false, codAmount: "",
+    isCredit: false, // super admin only: balance stays on the party's outstanding
     paymentMethod: "CASH", paymentAccountId: "",
     paymentReference: "", notes: "",
     dispatchType: "COURIER",
@@ -380,6 +381,7 @@ export default function OrdersPage() {
     orders: typeof selectedOrders;
     courierCharges: number;
     isCod: boolean;
+    isCredit?: boolean;
     codAmount: number;
     dispatchType: string;
     transportName: string;
@@ -711,7 +713,8 @@ export default function OrdersPage() {
   async function submitBooking() {
     if (selectedOrderIds.size === 0) return;
     if (shouldChargeDispatch && !bookingForm.courierCharges) { alert("Enter courier charges"); return; }
-    if (!bookingForm.isCod && !bookingForm.paymentAccountId) { alert("Select payment account"); return; }
+    const isCreditBooking = isSuperAdminUser && !bookingForm.isCod && bookingForm.isCredit;
+    if (!bookingForm.isCod && !isCreditBooking && !bookingForm.paymentAccountId) { alert("Select payment account"); return; }
     const orderIds = Array.from(selectedOrderIds);
     const emptyOrder = orderIds.find(id => (selectedItemIds[id]?.size ?? 0) === 0);
     if (emptyOrder) { alert("At least one item must stay checked per order — untick the order itself if you don't want to submit it at all."); return; }
@@ -725,8 +728,9 @@ export default function OrdersPage() {
         body: JSON.stringify({
           orderIds, itemIdsByOrder, courierCharges: courierNum, isCod: bookingForm.isCod,
           codAmount: bookingForm.isCod ? Number(bookingForm.codAmount || suggestedCod) : undefined,
-          paymentMethod: bookingForm.isCod ? undefined : bookingForm.paymentMethod,
-          paymentAccountId: bookingForm.isCod ? undefined : bookingForm.paymentAccountId,
+          isCredit: isCreditBooking || undefined,
+          paymentMethod: bookingForm.isCod || isCreditBooking ? undefined : bookingForm.paymentMethod,
+          paymentAccountId: bookingForm.isCod || isCreditBooking ? undefined : bookingForm.paymentAccountId,
           paymentReference: bookingForm.paymentReference || undefined,
           notes: bookingForm.notes || undefined,
           dispatchType: bookingForm.dispatchType,
@@ -762,6 +766,7 @@ export default function OrdersPage() {
         orders: selectedOrders,
         courierCharges: courierNum,
         isCod: bookingForm.isCod,
+        isCredit: isCreditBooking,
         codAmount: bookingForm.isCod ? Number(bookingForm.codAmount || suggestedCod) : 0,
         dispatchType: bookingForm.dispatchType,
         transportName: bookingForm.transportName,
@@ -769,6 +774,8 @@ export default function OrdersPage() {
         productPhoto: bookingForm.productPhoto,
       });
       setBookingModal(false); setSelectedOrderIds(new Set()); setBookingItems({}); setSelectedItemIds({}); setRates([]);
+      // Never carry "on credit" over into the next booking.
+      setBookingForm(p => ({ ...p, isCredit: false }));
       await load();
     } finally { setBookingSubmitting(false); }
   }
@@ -908,12 +915,12 @@ export default function OrdersPage() {
           <div className="space-y-3">
             <PoliciesWidget moduleTag="ORDERS" />
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="mobile-page-header flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-bold text-slate-900">Orders</h1>
                 <p className="text-xs text-slate-500 mt-0.5">Create and track sales orders.</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="mobile-page-header-actions flex items-center gap-2">
                 {currentUser?.role === "ADMIN" && (
                   <button onClick={async () => {
                     if (!confirm("Create a dummy TEST order for feature testing? It behaves like a real order (approval → production → dispatch) but is fully excluded from billing, invoicing, commissions, payroll and every report.")) return;
@@ -1039,9 +1046,10 @@ export default function OrdersPage() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit">
+            <div className="mobile-tabs flex gap-0.5 rounded-lg bg-slate-100 p-0.5 w-fit">
               {tabs.map(tab => (
                 <button key={tab.key}
+                  data-active={activeTab === tab.key}
                   onClick={() => { setActiveTab(tab.key); setSelectedOrderIds(new Set()); setCustomerError(null); }}
                   className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${activeTab === tab.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                   {tab.label}
@@ -1963,7 +1971,7 @@ export default function OrdersPage() {
               </div>
               <div style={{ padding: "0.875rem 1rem", display: "flex", flexDirection: "column", gap: "0.625rem" }}>
                 {/* Summary + Shipment Info — side by side */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
                     <div className="grid grid-cols-3 gap-1 text-center">
                       <div><p className="text-[10px] text-slate-500 leading-tight">Shipment Value</p><p className="font-bold text-slate-900 text-sm">{fmt(selectedItemsValue)}</p></div>
@@ -1999,7 +2007,7 @@ export default function OrdersPage() {
                 {/* Dispatch Method */}
                 <div className="rounded-lg border border-slate-200 px-3 py-2">
                   <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Dispatch Method</p>
-                  <div className="grid grid-cols-4 gap-1.5 mb-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
                     {[{key:"COURIER",label:"🚚 Courier"},{key:"TRANSPORT",label:"🚛 Transport"},{key:"BY_HAND",label:"🚶 By Hand"},{key:"SELF_COLLECTED",label:"🏪 Self Collect"}].map(dt => (
                       <button key={dt.key} onClick={() => setBookingForm(p => ({ ...p, dispatchType: dt.key }))}
                         className={`rounded-md border px-2 py-1.5 text-[10px] font-semibold text-left transition ${bookingForm.dispatchType === dt.key ? "border-brand-500 bg-brand-50 text-brand-800" : "border-slate-200 text-slate-600"}`}>
@@ -2008,14 +2016,14 @@ export default function OrdersPage() {
                     ))}
                   </div>
                   {bookingForm.dispatchType === "COURIER" && (
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Courier Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Delhivery, DTDC..." className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">AWB Number</label><input value={bookingForm.awbNumber} onChange={e => setBookingForm(p => ({ ...p, awbNumber: e.target.value }))} placeholder="Tracking No" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Booked By</label><input value={bookingForm.courierBy} onChange={e => setBookingForm(p => ({ ...p, courierBy: e.target.value }))} placeholder="Staff name" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                     </div>
                   )}
                   {bookingForm.dispatchType === "TRANSPORT" && (
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Transport Name</label><input value={bookingForm.transportName} onChange={e => setBookingForm(p => ({ ...p, transportName: e.target.value }))} placeholder="Company" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">LR Number</label><input value={bookingForm.lrNumber} onChange={e => setBookingForm(p => ({ ...p, lrNumber: e.target.value }))} placeholder="LR No" className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs" /></div>
                       <div><label className="block text-[10px] font-medium text-slate-600 mb-0.5">Charges</label><MobileSelect value={bookingForm.transportChargesType} onChange={v => setBookingForm(p => ({ ...p, transportChargesType: v }))} placeholder="Charges" options={[{ value: "TOPAY", label: "To Pay" }, { value: "PREPAID", label: "Prepaid" }]} className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" /></div>
@@ -2035,7 +2043,7 @@ export default function OrdersPage() {
                 {/* Product Photo + Bill — both saved to the order and shown to
                     Accounts on the Dispatch Approval card, not just used for
                     the local print receipt. */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="rounded-lg border border-slate-200 px-3 py-2">
                     <p className="text-[10px] font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Product Photo <span className="text-slate-400 font-normal normal-case">(receipt, label &amp; accounts)</span></p>
                     {bookingForm.productPhoto ? (
@@ -2107,7 +2115,7 @@ export default function OrdersPage() {
                 {/* Courier Rates + COD — side by side when both visible */}
                 {bookingForm.dispatchType === "COURIER" && (
                   <div className="rounded-lg border border-slate-200 px-3 py-2">
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
                       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Courier Rates</p>
                       <MobileSelect value={selectedCarrier}
                         onChange={v => { setSelectedCarrier(v); setRates([]); }}
@@ -2125,7 +2133,7 @@ export default function OrdersPage() {
                       </button>
                     </div>
                     {rates.length > 0 && (
-                      <div className="grid grid-cols-4 gap-1.5 mb-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
                         {rates.map((r, i) => (
                           <button key={i} onClick={() => setBookingForm(p => ({ ...p, courierCharges: r.amount.toString() }))}
                             className={`rounded-md border p-1.5 text-[10px] text-left transition ${bookingForm.courierCharges === r.amount.toString() ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
@@ -2140,12 +2148,12 @@ export default function OrdersPage() {
                       <label className="text-[10px] font-medium text-slate-700 whitespace-nowrap">Courier Charges (₹) *</label>
                       <input type="number" placeholder="Enter amount" value={bookingForm.courierCharges}
                         onChange={e => setBookingForm(p => ({ ...p, courierCharges: e.target.value }))}
-                        className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs" />
+                        className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs" />
                     </div>
                   </div>
                 )}
                 {/* COD + Payment — in one row */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className={`rounded-lg border px-3 py-2 ${bookingForm.isCod ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-200"}`}>
                     <div className="flex items-center gap-2 mb-1">
                       <input type="checkbox" id="cod" checked={bookingForm.isCod} onChange={e => setBookingForm(p => ({ ...p, isCod: e.target.checked }))} className="h-3.5 w-3.5" />
@@ -2160,13 +2168,31 @@ export default function OrdersPage() {
                           <label className="text-[10px] font-medium text-slate-700 whitespace-nowrap">COD ₹</label>
                           <input type="number" placeholder={suggestedCod.toString()} value={bookingForm.codAmount}
                             onChange={e => setBookingForm(p => ({ ...p, codAmount: e.target.value }))}
-                            className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs" />
+                            className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs" />
                         </div>
                       </div>
                     )}
                   </div>
                   {!bookingForm.isCod ? (
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <div className={`rounded-lg border px-3 py-2 ${isSuperAdminUser && bookingForm.isCredit ? "border-violet-200 bg-violet-50" : "border-emerald-200 bg-emerald-50"}`}>
+                      {isSuperAdminUser && (
+                        <div className="mb-1.5 grid grid-cols-2 gap-1">
+                          <button type="button" onClick={() => setBookingForm(p => ({ ...p, isCredit: false }))}
+                            className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${!bookingForm.isCredit ? "border-emerald-500 bg-white text-emerald-800" : "border-slate-200 bg-white text-slate-500"}`}>
+                            Paid now
+                          </button>
+                          <button type="button" onClick={() => setBookingForm(p => ({ ...p, isCredit: true }))}
+                            className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${bookingForm.isCredit ? "border-violet-500 bg-white text-violet-800" : "border-slate-200 bg-white text-slate-500"}`}>
+                            On Credit
+                          </button>
+                        </div>
+                      )}
+                      {isSuperAdminUser && bookingForm.isCredit ? (
+                        <p className="text-[11px] text-violet-800">
+                          No payment collected now. The unpaid balance stays on this party&apos;s outstanding (Accounts → Outstanding).
+                        </p>
+                      ) : (
+                      <>
                       <p className="text-[10px] font-semibold text-emerald-800 mb-1.5 uppercase tracking-wide">Payment Receipt (Prepaid)</p>
                       <div className="space-y-1.5">
                         <MobileSelect value={bookingForm.paymentMethod} onChange={v => setBookingForm(p => ({ ...p, paymentMethod: v }))}
@@ -2181,6 +2207,8 @@ export default function OrdersPage() {
                           onChange={e => setBookingForm(p => ({ ...p, paymentReference: e.target.value }))}
                           className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs bg-white" />
                       </div>
+                      </>
+                      )}
                     </div>
                   ) : (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -2272,7 +2300,7 @@ export default function OrdersPage() {
                 <div style={{ padding: "6px 8px", background: printReceiptData.isCod ? "#fff7ed" : "#f0fdf4", borderRadius: "6px", border: `1px solid ${printReceiptData.isCod ? "#fed7aa" : "#bbf7d0"}` }}>
                   <p style={{ fontSize: "9px", color: printReceiptData.isCod ? "#ea580c" : "#16a34a", fontWeight: 600, margin: "0 0 2px", textTransform: "uppercase" }}>Payment</p>
                   <p style={{ fontSize: "11px", fontWeight: 700, color: printReceiptData.isCod ? "#c2410c" : "#15803d", margin: 0 }}>
-                    {printReceiptData.isCod ? `💰 COD — ${fmt(printReceiptData.codAmount)}` : "✅ Prepaid"}
+                    {printReceiptData.isCod ? `💰 COD — ${fmt(printReceiptData.codAmount)}` : printReceiptData.isCredit ? "On Credit" : "✅ Prepaid"}
                   </p>
                   {printReceiptData.courierCharges > 0 && <p style={{ fontSize: "10px", color: "#64748b", margin: "2px 0 0" }}>Courier: {fmt(printReceiptData.courierCharges)}</p>}
                 </div>

@@ -110,7 +110,7 @@ export class CustomerDirectoryService {
     };
   }
 
-  async search(query: { search?: string; city?: string; state?: string; product?: string; page?: string | number; limit?: string | number }) {
+  async search(query: { search?: string; city?: string; state?: string; product?: string; page?: string | number; limit?: string | number; suggest?: string }) {
     // Every "Test Order" (see Orders page) spins up a disposable throwaway
     // customer named "TEST CUSTOMER (DELETE ME)" with a customerCode
     // prefixed TEST-CUST-. Keep those out of the real Customer Directory —
@@ -141,6 +141,42 @@ export class CustomerDirectoryService {
         some: {
           items: { some: { product: { name: { contains: product, mode: 'insensitive' } } } },
         },
+      };
+    }
+
+    // Type-ahead suggestions (Create Order's Name/Phone fields) only need the
+    // contact fields + order count, not order history/revenue — skipping
+    // those keeps every keystroke's request cheap. Same filter and ordering
+    // as the full search below.
+    if (query.suggest === '1') {
+      const suggestLimit = Math.min(20, Math.max(1, Number(query.limit) || 8));
+      const matches = await this.prisma.customer.findMany({
+        where,
+        orderBy: [{ updatedAt: 'desc' }],
+        take: suggestLimit,
+        select: {
+          id: true,
+          businessName: true,
+          contactPerson: true,
+          phone: true,
+          phone2: true,
+          email: true,
+          gstNumber: true,
+          shippingAddress: true,
+          billingAddress: true,
+          city: true,
+          state: true,
+          pincode: true,
+          dateOfBirth: true,
+          _count: { select: { orders: true } },
+        },
+      });
+      return {
+        customers: matches.map(({ _count, shippingAddress, billingAddress, ...customer }) => ({
+          ...customer,
+          address: shippingAddress ?? billingAddress,
+          orderCount: _count.orders,
+        })),
       };
     }
 

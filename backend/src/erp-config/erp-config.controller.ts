@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ErpConfigService, type ErpConfig } from './erp-config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isOrderOfferType } from '../offers/offer-rules';
 
 @Controller('erp-config')
 @UseGuards(AuthGuard('jwt'))
@@ -39,6 +40,9 @@ export class ErpConfigController {
     validFrom?: string;
     validTo?: string;
   }) {
+    if (isOrderOfferType(body.offerType)) {
+      throw new BadRequestException('Create order-level offers from the Offers tab');
+    }
     return this.prisma.offerCode.create({
       data: {
         code: body.code.toUpperCase().trim(),
@@ -54,7 +58,7 @@ export class ErpConfigController {
   }
 
   @Patch('offer-codes/:id')
-  updateOfferCode(@Param('id') id: string, @Body() body: {
+  async updateOfferCode(@Param('id') id: string, @Body() body: {
     isActive?: boolean;
     description?: string;
     offerType?: string;
@@ -64,6 +68,7 @@ export class ErpConfigController {
     validFrom?: string | null;
     validTo?: string | null;
   }) {
+    await this.assertLegacyOfferCode(id, body.offerType);
     return this.prisma.offerCode.update({
       where: { id },
       data: {
@@ -76,8 +81,19 @@ export class ErpConfigController {
   }
 
   @Delete('offer-codes/:id')
-  deleteOfferCode(@Param('id') id: string) {
+  async deleteOfferCode(@Param('id') id: string) {
+    await this.assertLegacyOfferCode(id);
     return this.prisma.offerCode.delete({ where: { id } });
+  }
+
+  // These endpoints manage only the legacy per-item codes. Order-level offers
+  // (DISCOUNT / FREE_ON_QTY / COMBO) price orders and set commission, so they
+  // are managed only through the admin-gated /offers endpoints.
+  private async assertLegacyOfferCode(id: string, newOfferType?: string) {
+    const existing = await this.prisma.offerCode.findUnique({ where: { id }, select: { offerType: true } });
+    if (isOrderOfferType(existing?.offerType) || isOrderOfferType(newOfferType)) {
+      throw new BadRequestException('Manage order-level offers from the Offers tab');
+    }
   }
 
   // ── Product Rules ──────────────────────────────────────────────────────────

@@ -115,6 +115,61 @@ export function wantsRecycleFollowUp(outcome: DialerOutcome): boolean {
   return outcome === DialerOutcome.NOT_INTERESTED;
 }
 
+// ── Reply details: why not interested, which products ─────────────────────
+
+/** Why a customer is not interested (DialerCall.notInterestedReason). */
+export const NOT_INTERESTED_REASONS = ['RATE', 'QUANTITY', 'TRUST', 'NO_REQUIREMENT'] as const;
+export type NotInterestedReason = (typeof NOT_INTERESTED_REASONS)[number];
+export const NOT_INTERESTED_REASON_LABELS: Record<NotInterestedReason, string> = {
+  RATE: 'Rate problem',
+  QUANTITY: 'Quantity problem',
+  TRUST: 'Trust problem',
+  NO_REQUIREMENT: 'No requirement',
+};
+/** Most products one reply may list. */
+export const MAX_REPLY_PRODUCTS = 20;
+
+/**
+ * A product the customer talked about. quantity = units they need;
+ * rate = ₹ per unit typed by the agent (Interested: the rate discussed;
+ * Rate problem: the rate the customer is asking for), null when not given.
+ * productName is filled in by the service from the Product table.
+ */
+export interface ReplyProduct { productId: string; quantity: number; rate: number | null; productName?: string; }
+
+/**
+ * Which replies carry products:
+ *   INTERESTED                  — optional, quantity + rate
+ *   NOT_INTERESTED / RATE       — at least one, quantity + asking rate
+ *   NOT_INTERESTED / QUANTITY   — at least one, quantity only
+ *   anything else               — none
+ */
+export function replyProductRule(outcome: DialerOutcome, reason: NotInterestedReason | null): 'none' | 'optional' | 'required' {
+  if (outcome === DialerOutcome.INTERESTED) return 'optional';
+  if (outcome === DialerOutcome.NOT_INTERESTED && (reason === 'RATE' || reason === 'QUANTITY')) return 'required';
+  return 'none';
+}
+
+function parseReplyProducts(raw: unknown, allowRate: boolean): { ok: true; value: ReplyProduct[] } | { ok: false; error: string } {
+  if (raw == null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: 'products must be a list' };
+  if (raw.length > MAX_REPLY_PRODUCTS) return { ok: false, error: `At most ${MAX_REPLY_PRODUCTS} products` };
+  const out: ReplyProduct[] = [];
+  for (const [i, p] of raw.entries()) {
+    const productId = typeof p?.productId === 'string' ? p.productId.trim() : '';
+    if (!productId) return { ok: false, error: `Product ${i + 1}: choose a product` };
+    const quantity = Number(p?.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, error: `Product ${i + 1}: quantity must be a whole number above 0` };
+    let rate: number | null = null;
+    if (allowRate && p?.rate != null && p.rate !== '') {
+      rate = Number(p.rate);
+      if (!Number.isFinite(rate) || rate < 0) return { ok: false, error: `Product ${i + 1}: rate must be a number ≥ 0` };
+    }
+    out.push({ productId, quantity, rate });
+  }
+  return { ok: true, value: out };
+}
+
 export interface DialerResultInput {
   leadId: string | null;
   importedContactId: string | null;
@@ -126,15 +181,25 @@ export interface DialerResultInput {
   outcome: DialerOutcome;
   note: string | null;
   callbackAt: Date | null;
+  notInterestedReason: NotInterestedReason | null;
+  products: ReplyProduct[];
 }
 
 const trimmedOrNull = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
-/** outcome / note / callbackAt — shared by POST /dialer/result and POST /dialer/desk-response. */
+interface OutcomeFields {
+  outcome: DialerOutcome;
+  note: string | null;
+  callbackAt: Date | null;
+  notInterestedReason: NotInterestedReason | null;
+  products: ReplyProduct[];
+}
+
+/** outcome / note / callbackAt / reason / products — shared by POST /dialer/result and POST /dialer/desk-response. */
 function parseOutcomeFields(
   body: any,
   now: Date,
-): { ok: true; value: { outcome: DialerOutcome; note: string | null; callbackAt: Date | null } } | { ok: false; error: string } {
+): { ok: true; value: OutcomeFields } | { ok: false; error: string } {
   const outcome = body?.outcome as DialerOutcome;
   if (!DIALER_OUTCOMES.includes(outcome)) {
     return { ok: false, error: `outcome must be one of ${DIALER_OUTCOMES.join(', ')}` };
@@ -150,7 +215,34 @@ function parseOutcomeFields(
     if (Number.isNaN(callbackAt.getTime())) return { ok: false, error: 'callbackAt is not a valid date' };
     if (callbackAt.getTime() < now.getTime() - 60 * 1000) return { ok: false, error: 'callbackAt must be in the future' };
   }
-  return { ok: true, value: { outcome, note, callbackAt } };
+
+  // Reason: only for NOT_INTERESTED, and optional there so an older app
+  // screen that doesn't send one still saves.
+  let notInterestedReason: NotInterestedReason | null = null;
+  const rawReason = trimmedOrNull(body?.notInterestedReason);
+  if (rawReason) {
+    if (outcome !== DialerOutcome.NOT_INTERESTED) return { ok: false, error: 'notInterestedReason is only for NOT_INTERESTED' };
+    if (!(NOT_INTERESTED_REASONS as readonly string[]).includes(rawReason)) {
+      return { ok: false, error: `notInterestedReason must be one of ${NOT_INTERESTED_REASONS.join(', ')}` };
+    }
+    notInterestedReason = rawReason as NotInterestedReason;
+  }
+
+  const productRule = replyProductRule(outcome, notInterestedReason);
+  const parsedProducts = parseReplyProducts(body?.products, notInterestedReason !== 'QUANTITY');
+  if ('error' in parsedProducts) return parsedProducts;
+  const products = parsedProducts.value;
+  if (productRule === 'none' && products.length) return { ok: false, error: 'Products can only be given for Interested, or Not interested because of rate / quantity' };
+  if (productRule === 'required' && !products.length) return { ok: false, error: 'Choose the product (and quantity) the customer asked about' };
+
+  return { ok: true, value: { outcome, note, callbackAt, notInterestedReason, products } };
+}
+
+/** "Envelope 10x4 × 5,000 @ ₹1.2" lines for activity notes. */
+export function describeReplyProducts(products: ReplyProduct[]): string {
+  return products
+    .map((p) => `${p.productName ?? p.productId} × ${p.quantity.toLocaleString('en-IN')}${p.rate != null ? ` @ ₹${p.rate}` : ''}`)
+    .join(', ');
 }
 
 /** Validates the POST /dialer/result body. Returns the parsed input, or an error message. */
@@ -166,7 +258,7 @@ export function parseDialerResult(body: any, now: Date = new Date()): { ok: true
 
   const fields = parseOutcomeFields(body, now);
   if ('error' in fields) return fields;
-  const { outcome, note, callbackAt } = fields.value;
+  const { outcome, note, callbackAt, notInterestedReason, products } = fields.value;
 
   const startedAt = body?.startedAt != null ? new Date(body.startedAt) : now;
   if (Number.isNaN(startedAt.getTime())) return { ok: false, error: 'startedAt is not a valid date' };
@@ -190,6 +282,8 @@ export function parseDialerResult(body: any, now: Date = new Date()): { ok: true
       outcome,
       note,
       callbackAt,
+      notInterestedReason,
+      products,
     },
   };
 }
@@ -211,9 +305,21 @@ export function formatDuration(totalSec: number): string {
  *   FOLLOW_UPS     — follow-ups due today, then older ones
  *   INTERESTED     — leads / contacts in INTERESTED status
  *   NOT_INTERESTED — leads / contacts in LOST status (wrong numbers stay skipped)
- *   BUSY / NOT_ANSWERED — numbers whose last auto-dialer call ended that way
+ *   BUSY / NOT_ANSWERED / CALLBACK — numbers whose last auto-dialer call ended that way
+ *   NI_RATE / NI_QUANTITY / NI_TRUST / NI_NO_REQUIREMENT — last auto-dialer
+ *                    call was Not interested for that reason (NI_LIST_REASONS)
  */
-export const DIALER_LISTS = ['ALL', 'NEW_LEADS', 'NOT_CONTACTED', 'FOLLOW_UPS', 'INTERESTED', 'NOT_INTERESTED', 'BUSY', 'NOT_ANSWERED'] as const;
+export const DIALER_LISTS = [
+  'ALL', 'NEW_LEADS', 'NOT_CONTACTED', 'FOLLOW_UPS', 'INTERESTED', 'NOT_INTERESTED', 'BUSY', 'NOT_ANSWERED',
+  'CALLBACK', 'NI_RATE', 'NI_QUANTITY', 'NI_TRUST', 'NI_NO_REQUIREMENT',
+] as const;
+/** Not-interested-reason dial lists → the reason they dial. */
+export const NI_LIST_REASONS: Partial<Record<(typeof DIALER_LISTS)[number], NotInterestedReason>> = {
+  NI_RATE: 'RATE',
+  NI_QUANTITY: 'QUANTITY',
+  NI_TRUST: 'TRUST',
+  NI_NO_REQUIREMENT: 'NO_REQUIREMENT',
+};
 export type DialerList = (typeof DIALER_LISTS)[number];
 
 export function parseDialerList(raw: unknown): DialerList | null {
@@ -226,11 +332,8 @@ export function parseDialerList(raw: unknown): DialerList | null {
 /** The PC popup only shows a number the phone took within this long. */
 export const LIVE_CALL_MAX_MINUTES = 60;
 
-export interface DeskResponseInput {
+export interface DeskResponseInput extends OutcomeFields {
   phone: string;
-  outcome: DialerOutcome;
-  note: string | null;
-  callbackAt: Date | null;
 }
 
 export function parseDeskResponse(body: any, now: Date = new Date()): { ok: true; value: DeskResponseInput } | { ok: false; error: string } {
@@ -248,6 +351,11 @@ export function parseDeskResponse(body: any, now: Date = new Date()): { ok: true
  */
 export function isDeskResponseCurrent(lock: { lockedAt: Date; deskOutcome: DialerOutcome | null; deskSubmittedAt: Date | null }): boolean {
   return !!lock.deskOutcome && !!lock.deskSubmittedAt && lock.deskSubmittedAt.getTime() >= lock.lockedAt.getTime();
+}
+
+/** Same rule for "End call" pressed on the PC: only a press made after the lock was taken counts. */
+export function isEndCallRequestCurrent(lock: { lockedAt: Date; deskEndCallAt: Date | null }): boolean {
+  return !!lock.deskEndCallAt && lock.deskEndCallAt.getTime() >= lock.lockedAt.getTime();
 }
 
 // ── Dialer settings (SystemConfig 'dialer_settings') ──────────────────────

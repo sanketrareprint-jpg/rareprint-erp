@@ -299,7 +299,7 @@ export default function CourierCalculatorPage() {
 
               <div style={S.section}>
                 <p style={S.sectionTitle}>Products</p>
-                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 80px 110px 28px", gap: 6, marginBottom: 4 }}>
+                <div className="mobile-hide" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 80px 110px 28px", gap: 6, marginBottom: 4 }}>
                   {["Product", "Qty", "Weight (kg)", ""].map((h) => (
                     <span key={h} style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
                   ))}
@@ -309,7 +309,7 @@ export default function CourierCalculatorPage() {
                   const noDbWeight = !!product && unitGrams(product) === null;
                   return (
                     <div key={idx} style={{ marginBottom: 6 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 80px 110px 28px", gap: 6, alignItems: "center" }}>
+                      <div className="mobile-product-line" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 80px 110px 28px", gap: 6, alignItems: "center" }}>
                         <div style={{ position: "relative" }}>
                           <input type="text" placeholder="Search product..."
                             value={productSearch[idx] !== undefined ? productSearch[idx] : (product ? productLabel(product) : "")}
@@ -340,11 +340,17 @@ export default function CourierCalculatorPage() {
                             </div>
                           )}
                         </div>
-                        <input type="number" min={1} value={line.quantity}
-                          onChange={(e) => updateLine(idx, { quantity: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={S.input} />
-                        <input type="number" min={0} step="0.001" value={line.weightKg} placeholder="0.000"
-                          onChange={(e) => updateLine(idx, { weightKg: e.target.value, weightEdited: true })}
-                          style={{ ...S.input, borderColor: noDbWeight && !(Number(line.weightKg) > 0) ? "#f59e0b" : "#e2e8f0" }} />
+                        <div>
+                          <span className="mb-0.5 block text-[11px] font-semibold uppercase text-slate-500 md:hidden">Qty</span>
+                          <input type="number" min={1} value={line.quantity}
+                            onChange={(e) => updateLine(idx, { quantity: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={S.input} />
+                        </div>
+                        <div>
+                          <span className="mb-0.5 block text-[11px] font-semibold uppercase text-slate-500 md:hidden">Weight (kg)</span>
+                          <input type="number" min={0} step="0.001" value={line.weightKg} placeholder="0.000"
+                            onChange={(e) => updateLine(idx, { weightKg: e.target.value, weightEdited: true })}
+                            style={{ ...S.input, borderColor: noDbWeight && !(Number(line.weightKg) > 0) ? "#f59e0b" : "#e2e8f0" }} />
+                        </div>
                         <button type="button" onClick={() => { setLines((prev) => prev.length > 1 ? prev.filter((_, i) => i !== idx) : [emptyLine()]); setProductSearch({}); setResult(null); }}
                           style={{ border: "none", background: "none", cursor: "pointer", color: "#94a3b8" }} aria-label="Remove product">
                           <Trash2 size={14} />
@@ -403,7 +409,45 @@ export default function CourierCalculatorPage() {
               ) : history.length === 0 ? (
                 <div style={{ fontSize: 12, color: "#64748b" }}>No rates calculated yet.</div>
               ) : (
-                <div style={{ overflowX: "auto" }}>
+                <>
+                {/* Phone: one card per calculation (table below is md+). */}
+                <div className="md:hidden space-y-2.5">
+                  {history.map((q) => {
+                    const cheapest = q.rates[0];
+                    const open = expandedHistoryId === q.id;
+                    return (
+                      <div key={q.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 break-words">{q.pickupName} → {q.deliveryPincode}</p>
+                            <p className="text-xs text-slate-500">{new Date(q.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}{q.createdByName ? ` · ${q.createdByName}` : ""}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-bold text-slate-900">{cheapest ? fmt(cheapest.chargeAmount) : "—"}</p>
+                            {cheapest && <p className="text-[11px] text-slate-500">{cheapest.carrierName}</p>}
+                          </div>
+                        </div>
+                        <p className="mt-1.5 text-xs text-slate-600">
+                          {q.platformLabel} · {q.paymentMode === "COD" ? `COD ${fmt(q.codAmount ?? 0)}` : "Prepaid"} · {q.totalWeightKg} kg · pickup {q.pickupPincode}
+                        </p>
+                        <p className="text-xs text-slate-500 break-words">{q.items.map((i) => `${i.productName} × ${i.quantity}`).join(", ")}</p>
+                        <button type="button" onClick={() => setExpandedHistoryId(open ? null : q.id)}
+                          className="mt-2 w-full border-t border-slate-100 pt-2 text-xs font-semibold text-blue-600">
+                          {open ? "Hide rates" : `All rates (${q.rates.length})`}
+                        </button>
+                        {open && (
+                          <div className="mt-2 space-y-1.5">
+                            <p className="text-[11px] text-slate-500 break-words">
+                              {q.items.map((i) => `${i.productName} × ${i.quantity}: ${i.weightKg} kg${i.weightEdited ? (i.productWeightKg != null ? ` (edited, product DB ${i.productWeightKg} kg)` : " (entered manually)") : ""}`).join(" · ")}
+                            </p>
+                            <RatesTable rates={q.rates} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block" style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr>{["Date", "By", "Platform", "Route", "Payment", "Weight", "Products", "Cheapest charge", ""].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
@@ -446,6 +490,7 @@ export default function CourierCalculatorPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -457,7 +502,22 @@ export default function CourierCalculatorPage() {
 
 function RatesTable({ rates }: { rates: QuoteRate[] }) {
   return (
-    <div style={{ overflowX: "auto" }}>
+    <>
+    {/* Phone: one row per courier (table below is md+). */}
+    <div className="md:hidden divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+      {rates.map((r, i) => (
+        <div key={`${r.carrierName}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800 break-words">{r.carrierName}</p>
+            <p className="text-[11px] text-slate-500">
+              {r.estimatedDays ? `${r.estimatedDays} day${r.estimatedDays === 1 ? "" : "s"}` : "ETA —"} · cost {fmt(r.cost)} ×{r.multiplier}
+            </p>
+          </div>
+          <p className="shrink-0 text-sm font-bold text-slate-900">{fmt(r.chargeAmount)}</p>
+        </div>
+      ))}
+    </div>
+    <div className="hidden md:block" style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>{["Courier", "ETA", "Platform cost", "Multiplier", "Courier charge"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
@@ -475,5 +535,6 @@ function RatesTable({ rates }: { rates: QuoteRate[] }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }

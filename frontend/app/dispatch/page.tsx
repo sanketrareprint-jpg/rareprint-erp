@@ -76,6 +76,7 @@ type DispatchOrder = {
   dispatchType?: DispatchMethod;
   paymentType?: "COD" | "PREPAID";
   isCod: boolean; codAmount: number | null; balanceDue?: number;
+  isCredit?: boolean; // super admin dispatched on credit -- collect nothing, balance is on party outstanding
   isSample?: boolean; samplePaymentType?: string | null;
   // Courier charge the sales agent entered while submitting this batch for
   // dispatch — distinct from whatever Dispatch itself later books/collects.
@@ -952,20 +953,20 @@ export default function DispatchPage() {
               <p className="mt-0.5 text-sm text-slate-600">Select items to dispatch — partial or full.</p>
             </div>
             {/* Tab switcher */}
-            <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
-              <button onClick={() => setTab("queue")}
+            <div className="mobile-tabs flex rounded-lg border border-slate-200 bg-white overflow-hidden">
+              <button onClick={() => setTab("queue")} data-active={tab === "queue"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${tab === "queue" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <Package className="h-3.5 w-3.5" /> Queue ({orders.length})
               </button>
-              <button onClick={() => setTab("history")}
+              <button onClick={() => setTab("history")} data-active={tab === "history"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "history" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <History className="h-3.5 w-3.5" /> History ({historyActiveCount})
               </button>
-              <button onClick={() => setTab("delivered")}
+              <button onClick={() => setTab("delivered")} data-active={tab === "delivered"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "delivered" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <PackageCheck className="h-3.5 w-3.5" /> Delivered ({historyDeliveredCount})
               </button>
-              <button onClick={() => setTab("courier_charges")}
+              <button onClick={() => setTab("courier_charges")} data-active={tab === "courier_charges"}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-l border-slate-200 transition ${tab === "courier_charges" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
                 <IndianRupee className="h-3.5 w-3.5" /> Courier Charges
               </button>
@@ -1444,7 +1445,9 @@ export default function DispatchPage() {
                             : <span className="rounded-full bg-green-100 text-green-800 px-1.5 py-0.5 text-[10px] font-bold">✅ PREPAID</span>
                           : o.isCod
                             ? <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold">COD {o.codAmount ? fmt(o.codAmount) : ""}</span>
-                            : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
+                            : o.isCredit
+                              ? <span className="rounded-full bg-violet-100 text-violet-800 px-1.5 py-0.5 text-[10px] font-bold" title="Dispatched on credit by super admin — do not collect payment">CREDIT</span>
+                              : <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] font-bold">PREPAID</span>}
                         {o.courierChargeQuoted != null && (
                           <span className="rounded-full bg-sky-100 text-sky-800 px-1.5 py-0.5 text-[10px] font-bold" title="Courier charge entered by the sales agent when this order was submitted for dispatch approval">
                             🚚 {fmt(o.courierChargeQuoted)}
@@ -1525,7 +1528,9 @@ export default function DispatchPage() {
                         ) : (
                           <div className="flex justify-between gap-2">
                             <span className="text-slate-500">Payment</span>
-                            <span className="font-semibold text-emerald-600">PREPAID</span>
+                            {o.isCredit
+                              ? <span className="font-semibold text-violet-600">CREDIT</span>
+                              : <span className="font-semibold text-emerald-600">PREPAID</span>}
                           </div>
                         )}
                         {o.courierChargeQuoted != null && (
