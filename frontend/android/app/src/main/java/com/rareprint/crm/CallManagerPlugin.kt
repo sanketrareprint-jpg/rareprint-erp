@@ -47,6 +47,10 @@ import com.getcapacitor.annotation.PermissionCallback
         Permission(
             strings = [Manifest.permission.POST_NOTIFICATIONS],
             alias = "notifications"
+        ),
+        Permission(
+            strings = [Manifest.permission.ANSWER_PHONE_CALLS],
+            alias = "endCall"
         )
     ]
 )
@@ -94,6 +98,8 @@ class CallManagerPlugin : Plugin() {
             .put("overlay", overlay)
             .put("batteryUnrestricted", batteryUnrestricted)
             .put("allGranted", callPhone && phoneState && callLog && notifications && overlay)
+            // Optional (not part of allGranted): lets "End call" on the PC hang up the phone.
+            .put("endCall", Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && isGranted(Manifest.permission.ANSWER_PHONE_CALLS))
             .put("brand", Build.MANUFACTURER ?: "")
     }
 
@@ -112,6 +118,7 @@ class CallManagerPlugin : Plugin() {
     override fun requestPermissions(call: PluginCall) {
         val aliases = mutableListOf("callPhone", "phoneState", "callLog")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) aliases.add("notifications")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) aliases.add("endCall")
         requestPermissionForAliases(aliases.toTypedArray(), call, "dialerPermissionsCallback")
     }
 
@@ -231,6 +238,33 @@ class CallManagerPlugin : Plugin() {
             return
         }
         call.resolve(JSObject().put("dialing", true).put("number", number))
+    }
+
+    /**
+     * Hangs up the current call — "End call" pressed in the PC popup. The call
+     * then ends as usual (callEnded event with the real duration).
+     * Needs Android 9+ and the "answer / end phone calls" permission.
+     */
+    @SuppressLint("MissingPermission")
+    @PluginMethod
+    fun endCall(call: PluginCall) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            call.reject("Ending a call from the PC needs Android 9 or newer")
+            return
+        }
+        if (!isGranted(Manifest.permission.ANSWER_PHONE_CALLS)) {
+            call.reject("Allow RarePrint to end calls first (Dialer → Allow permissions)")
+            return
+        }
+        val telecom = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        val ended = try {
+            @Suppress("DEPRECATION")
+            telecom.endCall()
+        } catch (e: SecurityException) {
+            call.reject("Android refused to end the call: ${e.message}")
+            return
+        }
+        call.resolve(JSObject().put("ended", ended))
     }
 
     // ── Public plugin methods ─────────────────────────────────────────────────

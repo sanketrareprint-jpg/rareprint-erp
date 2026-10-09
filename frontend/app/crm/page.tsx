@@ -28,6 +28,8 @@ interface Lead {
   notes?: string; tags?: string[]; source: string; status: LeadStatus; score: number; isHot: boolean;
   agentId: string; agent: { fullName: string };
   nextFollowUp?: FollowUp; activityCount: number; isDuplicate?: boolean;
+  // Last auto-dialer call's reply (GET /crm/leads) — the Kanban's reply columns.
+  lastDialerReply?: { outcome: string; notInterestedReason: string | null; startedAt: string } | null;
   activities?: Activity[]; followUps?: FollowUp[]; sharedWith?: any[];
   createdAt: string; updatedAt: string;
 }
@@ -45,6 +47,28 @@ interface NotContactedContact {
 }
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
+// Kanban "Last call reply" columns — the reply chosen when the last auto-dialer
+// call ended (not-interested split by reason). Keys match the dialer's lists.
+const REPLY_COLUMNS: Array<{ key: string; label: string; className: string }> = [
+  { key: "NONE", label: "Not called yet", className: "bg-slate-100 text-slate-700" },
+  { key: "INTERESTED", label: "Interested", className: "bg-green-100 text-green-800" },
+  { key: "CALLBACK", label: "Callback", className: "bg-blue-100 text-blue-800" },
+  { key: "BUSY", label: "Busy", className: "bg-amber-100 text-amber-800" },
+  { key: "NOT_ANSWERED", label: "Not answered", className: "bg-slate-200 text-slate-700" },
+  { key: "NI_RATE", label: "Rate problem", className: "bg-red-100 text-red-700" },
+  { key: "NI_QUANTITY", label: "Quantity problem", className: "bg-red-100 text-red-700" },
+  { key: "NI_TRUST", label: "Trust problem", className: "bg-red-100 text-red-700" },
+  { key: "NI_NO_REQUIREMENT", label: "No requirement", className: "bg-red-100 text-red-700" },
+  { key: "NOT_INTERESTED", label: "Not interested (no reason)", className: "bg-red-50 text-red-600" },
+  { key: "WRONG_NUMBER", label: "Wrong number", className: "bg-red-200 text-red-900" },
+];
+function replyColumnKey(lead: { lastDialerReply?: { outcome: string; notInterestedReason: string | null } | null }): string {
+  const r = lead.lastDialerReply;
+  if (!r) return "NONE";
+  if (r.outcome === "NOT_INTERESTED" && r.notInterestedReason) return `NI_${r.notInterestedReason}`;
+  return r.outcome;
+}
+
 const STATUS_LABELS: Record<LeadStatus, string> = {
   NEW: "New", CONTACTED: "Contacted", INTERESTED: "Interested",
   QUOTED: "Quoted", WON: "Won", LOST: "Lost", RECYCLED: "Recycled",
@@ -186,6 +210,7 @@ function CrmPageContent() {
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"kanban" | "list" | "dialer" | "followups" | "notcontacted">("list");
+  const [kanbanGroup, setKanbanGroup] = useState<"status" | "reply">("status");
   const [search, setSearch] = useState("");
   // Debounced (300ms, same pattern as app/orders/page.tsx) — load() used to
   // refetch leads + stats + follow-ups on every single keystroke.
@@ -796,6 +821,39 @@ function CrmPageContent() {
 
         ) : view === "kanban" ? (
           /* ── KANBAN ── */
+          <>
+          <div className="mb-3 flex items-center gap-2 text-sm">
+            <span className="text-slate-500">Columns:</span>
+            {([["status", "Lead status"], ["reply", "Last call reply"]] as const).map(([g, label]) => (
+              <button key={g} onClick={() => setKanbanGroup(g)}
+                className={`rounded-lg px-3 py-1.5 font-medium ${kanbanGroup === g ? "bg-blue-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {kanbanGroup === "reply" ? (
+          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: "70vh" }}>
+            {REPLY_COLUMNS.map((col) => {
+              const colLeads = leads.filter((l) => replyColumnKey(l) === col.key);
+              return (
+                <div key={col.key} className="flex-shrink-0 w-64">
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${col.className}`}>{col.label}</span>
+                    <span className="text-xs text-slate-400">{colLeads.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {colLeads.map((lead) => (
+                      <LeadCard key={lead.id} lead={lead} onClick={() => openLead(lead)} onCall={() => initiateCall(lead)} />
+                    ))}
+                    {colLeads.length === 0 && (
+                      <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center text-xs text-slate-400">Empty</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          ) : (
           <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: "70vh" }}>
             {kanbanStatuses.map((status) => {
               const colLeads = leads.filter((l) => l.status === status);
@@ -817,6 +875,8 @@ function CrmPageContent() {
               );
             })}
           </div>
+          )}
+          </>
 
         ) : view === "list" ? (
           /* ── LIST ── */

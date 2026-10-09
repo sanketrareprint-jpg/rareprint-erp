@@ -259,12 +259,12 @@ describe('dialer rules — PC popup response (RULE 9)', () => {
   it('CALLBACK needs a future callbackAt, same as the phone', () => {
     expect(parseDeskResponse({ number: '9876543210', outcome: 'CALLBACK' }, now)).toEqual({ ok: false, error: 'callbackAt is required when outcome is CALLBACK' });
     const ok = parseDeskResponse({ number: '+91 98765 43210', outcome: 'CALLBACK', callbackAt: '2026-10-08T10:00:00Z', note: '  call after lunch ' }, now);
-    expect(ok).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.CALLBACK, note: 'call after lunch', callbackAt: new Date('2026-10-08T10:00:00Z'), notInterestedReason: null, products: [] } });
+    expect(ok).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.CALLBACK, note: 'call after lunch', callbackAt: new Date('2026-10-08T10:00:00Z'), notInterestedReason: null, products: [], then: 'NEXT' } });
   });
 
   it('ignores callbackAt for other outcomes', () => {
     const r = parseDeskResponse({ number: '9876543210', outcome: 'BUSY', callbackAt: 'garbage' }, now);
-    expect(r).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.BUSY, note: null, callbackAt: null, notInterestedReason: null, products: [] } });
+    expect(r).toEqual({ ok: true, value: { phone: '9876543210', outcome: DialerOutcome.BUSY, note: null, callbackAt: null, notInterestedReason: null, products: [], then: 'NEXT' } });
   });
 
   it('only a response typed after the lock was taken counts', () => {
@@ -357,7 +357,7 @@ describe('dialer rules — reply details: reason, products, end call (RULE 11)',
     const r = parseDeskResponse({ number: '9876543210', outcome: 'NOT_INTERESTED', notInterestedReason: 'QUANTITY', products: [product] }, now);
     expect(r).toEqual({ ok: true, value: {
       phone: '9876543210', outcome: DialerOutcome.NOT_INTERESTED, note: null, callbackAt: null,
-      notInterestedReason: 'QUANTITY', products: [{ productId: 'p1', quantity: 5000, rate: null }],
+      notInterestedReason: 'QUANTITY', products: [{ productId: 'p1', quantity: 5000, rate: null }], then: 'NEXT',
     } });
   });
 
@@ -409,5 +409,23 @@ describe('dialer rules — PC popup only during a lead call (RULE 11)', () => {
     expect(parseLiveState({ state: 'ON_CALL', number: '+91 98765 43210' })).toEqual({ ok: true, value: { state: 'ON_CALL', phone: '9876543210' } });
     expect('error' in parseLiveState({ state: 'ON_CALL' })).toBe(true);
     expect('error' in parseLiveState({ state: 'RINGING', number: '9876543210' })).toBe(true);
+  });
+});
+
+describe('dialer rules — PC reply: call next / pause / stop (RULE 12)', () => {
+  const now = new Date('2026-10-09T06:00:00Z');
+  const base = { number: '9876543210', outcome: 'BUSY' };
+  it('defaults to NEXT', () => {
+    const r = parseDeskResponse(base, now);
+    expect('value' in r && r.value.then).toBe('NEXT');
+  });
+  it('accepts PAUSE and STOP', () => {
+    for (const then of ['PAUSE', 'STOP']) {
+      const r = parseDeskResponse({ ...base, then }, now);
+      expect('value' in r && r.value.then).toBe(then);
+    }
+  });
+  it('rejects anything else', () => {
+    expect('error' in parseDeskResponse({ ...base, then: 'LATER' }, now)).toBe(true);
   });
 });

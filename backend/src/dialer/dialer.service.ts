@@ -929,7 +929,7 @@ export class DialerService {
       select: {
         phone: true, leadId: true, importedContactId: true, lockedAt: true, liveState: true, liveStateAt: true,
         deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true,
-        deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true,
+        deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true, deskThen: true,
       },
     });
     if (!lock || (!lock.leadId && !lock.importedContactId) || !isOnLiveCall(lock, now)) return { item: null };
@@ -991,9 +991,10 @@ export class DialerService {
 
   private deskResponseOf(lock: {
     deskOutcome: DialerOutcome | null; deskNote: string | null; deskCallbackAt: Date | null; deskSubmittedAt: Date | null;
-    deskNotInterestedReason: string | null; deskProducts: Prisma.JsonValue;
+    deskNotInterestedReason: string | null; deskProducts: Prisma.JsonValue; deskThen: string | null;
   }) {
     return {
+      then: lock.deskThen ?? 'NEXT',
       outcome: lock.deskOutcome,
       note: lock.deskNote,
       callbackAt: lock.deskCallbackAt,
@@ -1017,7 +1018,7 @@ export class DialerService {
     const res = await this.prisma.dialerLock.updateMany({
       where: { phone: v.phone, agentId: user.id },
       data: {
-        deskOutcome: v.outcome, deskNote: v.note, deskCallbackAt: v.callbackAt, deskSubmittedAt: new Date(),
+        deskOutcome: v.outcome, deskNote: v.note, deskCallbackAt: v.callbackAt, deskSubmittedAt: new Date(), deskThen: v.then,
         deskNotInterestedReason: v.notInterestedReason,
         deskProducts: products.length ? (products as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       },
@@ -1038,7 +1039,7 @@ export class DialerService {
       where: { phone, agentId: user.id },
       select: {
         lockedAt: true, deskOutcome: true, deskNote: true, deskCallbackAt: true, deskSubmittedAt: true,
-        deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true,
+        deskNotInterestedReason: true, deskProducts: true, deskEndCallAt: true, deskThen: true,
       },
     });
     if (!lock) return { response: null, endCallRequested: false };

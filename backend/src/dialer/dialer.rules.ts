@@ -352,8 +352,13 @@ export function parseDialerList(raw: unknown): DialerList | null {
 /** The PC popup only shows a number the phone took within this long. */
 export const LIVE_CALL_MAX_MINUTES = 60;
 
+/** What the phone does after saving the PC's reply ("Save & call next" / "Save & pause" / "Save & stop"). */
+export const DESK_THEN = ['NEXT', 'PAUSE', 'STOP'] as const;
+export type DeskThen = (typeof DESK_THEN)[number];
+
 export interface DeskResponseInput extends OutcomeFields {
   phone: string;
+  then: DeskThen;
 }
 
 export function parseDeskResponse(body: any, now: Date = new Date()): { ok: true; value: DeskResponseInput } | { ok: false; error: string } {
@@ -361,7 +366,9 @@ export function parseDeskResponse(body: any, now: Date = new Date()): { ok: true
   if (phone.length < 6) return { ok: false, error: 'number is required' };
   const fields = parseOutcomeFields(body, now);
   if ('error' in fields) return fields;
-  return { ok: true, value: { phone, ...fields.value } };
+  const then = body?.then == null || body.then === '' ? 'NEXT' : body.then;
+  if (!(DESK_THEN as readonly string[]).includes(then)) return { ok: false, error: `then must be one of ${DESK_THEN.join(', ')}` };
+  return { ok: true, value: { phone, ...fields.value, then } };
 }
 
 /**

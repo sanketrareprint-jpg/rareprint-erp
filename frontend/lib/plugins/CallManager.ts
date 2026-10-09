@@ -32,6 +32,7 @@ interface NativeCallManager {
   startDialerSession(): Promise<void>;
   stopDialerSession(): Promise<void>;
   startCall(opts: { number: string; simId?: string }): Promise<{ dialing: boolean; number: string }>;
+  endCall(): Promise<{ ended: boolean }>;
   addListener(event: "callStarted", handler: (data: DialerCallStarted) => void): Promise<{ remove: () => void }>;
   addListener(event: "callEnded", handler: (data: DialerCallEnded) => void): Promise<{ remove: () => void }>;
   addListener(event: "dialerControl", handler: (data: { action: "pause" | "stop" }) => void): Promise<{ remove: () => void }>;
@@ -181,6 +182,7 @@ export interface DialerPermissionStatus {
   notifications: boolean;
   overlay: boolean;              // needed to jump back to the app after each call
   batteryUnrestricted: boolean;  // recommended, not required
+  endCall?: boolean;             // optional: "End call" on the PC can hang up (missing on older app builds)
   allGranted: boolean;
   brand: string;
 }
@@ -217,6 +219,8 @@ export const dialer = {
   startSession: () => _plugin.startDialerSession(),
   stopSession: () => _plugin.stopDialerSession(),
   startCall: (number: string, simId?: string) => _plugin.startCall({ number, simId }),
+  /** Hang up the current call (PC popup "End call"). Rejects on app builds without it. */
+  endCall: () => _plugin.endCall(),
   onCallStarted: (h: (e: DialerCallStarted) => void) => _plugin.addListener("callStarted", h),
   onCallEnded: (h: (e: DialerCallEnded) => void) => _plugin.addListener("callEnded", h),
   onControl: (h: (e: { action: "pause" | "stop" }) => void) => _plugin.addListener("dialerControl", h),

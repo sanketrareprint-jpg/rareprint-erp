@@ -29,7 +29,22 @@ const QUEUE_AGENT_KEY = "dialer_queue_agent_id"; // admins: whose leads to dial 
 const LIST_KEY = "dialer_list"; // which list to dial (DIAL_LISTS)
 const DESK_POLL_MS = 2000; // outcome screen: how often to check for a response typed on the PC
 
-type OutcomeValues = { outcome: Outcome; note: string; callbackAtIso: string | null };
+type OutcomeValues = {
+  outcome: Outcome; note: string; callbackAtIso: string | null;
+  // From the PC popup only: why not interested + products discussed (sent as-is).
+  notInterestedReason?: string | null;
+  products?: Array<{ productId: string; quantity: number; rate: number | null }>;
+};
+/** GET /dialer/desk-response */
+interface DeskReply {
+  response: {
+    outcome: Outcome; note: string | null; callbackAt: string | null; submittedAt: string;
+    notInterestedReason: string | null;
+    products: Array<{ productId: string; quantity: number; rate: number | null }>;
+    then: "NEXT" | "PAUSE" | "STOP";
+  } | null;
+  endCallRequested: boolean;
+}
 
 interface QueueItem {
   source: string;
@@ -358,6 +373,8 @@ export default function DialerPage() {
       outcome: values.outcome,
       note: values.note || undefined,
       callbackAt: values.outcome === "CALLBACK" ? values.callbackAtIso : undefined,
+      notInterestedReason: values.notInterestedReason || undefined,
+      products: values.products?.length ? values.products : undefined,
     }, (msg) => setError(msg));
     setFromPc(false);
     if (!saved) {
@@ -377,23 +394,35 @@ export default function DialerPage() {
   const saveOutcomeRef = useRef(saveOutcome);
   saveOutcomeRef.current = saveOutcome;
   const deskTriedRef = useRef(""); // PC response already tried — a failed save isn't retried in a loop
+  const endCallTriedRef = useRef(""); // PC "End call" already acted on for this call
 
-  // Outcome screen: if the reply was typed on the PC (same login), save it
-  // and dial the next number straight away. Checked as soon as the call
-  // ends, then every DESK_POLL_MS while this screen is open.
+  // The PC popup (same login), checked every DESK_POLL_MS during the call and
+  // on the outcome screen:
+  //  - "End call" pressed there while dialing / on the call → hang up here.
+  //  - Reply saved there → once the call has ended, save it with the real
+  //    duration (no need to choose it again here), then call next / pause /
+  //    stop as chosen on the PC.
   useEffect(() => {
-    if (!isNative || phase !== "outcome" || !item) return;
+    if (!isNative || (phase !== "dialing" && phase !== "onCall" && phase !== "outcome") || !item) return;
     let cancelled = false;
     const check = async () => {
-      const res = await apiFetch<{ response: { outcome: Outcome; note: string | null; callbackAt: string | null; submittedAt: string } | null }>(
-        `/dialer/desk-response?phone=${encodeURIComponent(item.phone)}`,
-      );
-      if (cancelled || !res?.response || phaseRef.current !== "outcome") return;
+      const res = await apiFetch<DeskReply>(`/dialer/desk-response?phone=${encodeURIComponent(item.phone)}`);
+      if (cancelled || !res) return;
+      const p = phaseRef.current;
+      if (res.endCallRequested && (p === "dialing" || p === "onCall") && endCallTriedRef.current !== item.phone) {
+        endCallTriedRef.current = item.phone;
+        dialer.endCall().catch((e) => setError(`Could not end the call from the PC: ${errMsg(e)}`));
+      }
+      if (!res.response || p !== "outcome") return;
       const r = res.response;
       const key = `${item.phone}|${r.submittedAt}`;
       if (deskTriedRef.current === key) return;
       deskTriedRef.current = key;
-      saveOutcomeRef.current("next", { outcome: r.outcome, note: r.note ?? "", callbackAtIso: r.callbackAt });
+      const mode = r.then === "PAUSE" ? "pause" : r.then === "STOP" ? "stop" : "next";
+      saveOutcomeRef.current(mode, {
+        outcome: r.outcome, note: r.note ?? "", callbackAtIso: r.callbackAt,
+        notInterestedReason: r.notInterestedReason, products: r.products,
+      });
     };
     check();
     const t = setInterval(check, DESK_POLL_MS);
@@ -458,6 +487,14 @@ export default function DialerPage() {
               {!perms.overlay && <button className="px-3 py-2 rounded-lg border" onClick={() => requestOverlayPermission()}>Allow display over apps</button>}
               <button className="px-3 py-2 rounded-lg border" onClick={() => dialer.openAppSettings().catch(() => {})}>Open app settings</button>
             </div>
+          </section>
+        )}
+
+        {/* Optional: lets "End call" on the PC hang up this phone (app builds with end-call support only) */}
+        {perms && !missingPerms && perms.endCall === false && (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2 text-sm">
+            <p className="text-amber-800">Allow RarePrint to end calls, so <b>End call</b> on your PC can hang up this phone.</p>
+            <button className="px-3 py-2 rounded-lg bg-amber-600 text-white" onClick={async () => { try { setPerms(await dialer.requestPermissions()); refreshPerms(); } catch (e) { setError(errMsg(e)); } }}>Allow ending calls</button>
           </section>
         )}
 

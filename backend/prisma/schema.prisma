@@ -1762,6 +1762,8 @@ model DialerLock {
   deskProducts      Json?
   // "End call" pressed in the PC popup — the phone hangs up when it sees it.
   deskEndCallAt     DateTime?
+  // After the phone saves the PC's reply: NEXT (dial next), PAUSE or STOP.
+  deskThen          String?
   // What the phone is doing with this number right now (DIALING / ON_CALL /
   // WRAP_UP, null = not on a call), reported by the phone. The PC popup shows
   // only while this is set — a lock alone just means the number is claimed.
