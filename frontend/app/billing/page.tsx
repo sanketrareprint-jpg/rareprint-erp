@@ -1259,8 +1259,7 @@ function BillingPageInner() {
                     {estimateForm.items.map((line, idx) => {
                       const search = line.productSearch.trim().toLowerCase();
                       const options = catalog
-                        .filter(p => !search || `${p.sku} ${p.name}`.toLowerCase().includes(search) || p.id === line.productId)
-                        .slice(0, 100);
+                        .filter(p => !search || `${p.sku} ${p.name}`.toLowerCase().includes(search) || p.id === line.productId);
                       return (
                         <div key={idx} className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 sm:grid-cols-12 items-end">
                           <label className="text-[11px] text-slate-500 space-y-1 sm:col-span-5">Product *
