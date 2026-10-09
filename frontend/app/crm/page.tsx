@@ -1359,7 +1359,7 @@ function CrmPageContent() {
 
       {/* ── ADD LEAD MODAL ── */}
       {showAddModal && (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
+        <div className="erp-sheet-backdrop fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="p-4 sm:p-6 border-b border-slate-200 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900">Add new lead</h2>
@@ -1407,7 +1407,7 @@ function CrmPageContent() {
 
       {/* LOG CALL MODAL */}
       {showCallModal && (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
+        <div className="erp-sheet-backdrop fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-2xl p-6">
             <h2 className="text-lg font-bold text-slate-900 mb-0.5">Log call</h2>
             <p className="text-slate-800 font-semibold">{displayName(showCallModal)}</p>
@@ -1429,7 +1429,7 @@ function CrmPageContent() {
 
       {/* LOG CALL MODAL — not-contacted tab */}
       {showContactCallModal && (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
+        <div className="erp-sheet-backdrop fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-2xl p-6">
             <h2 className="text-lg font-bold text-slate-900 mb-0.5">Log call</h2>
             <p className="text-slate-800 font-semibold">{showContactCallModal.name?.trim() || showContactCallModal.phone}</p>
@@ -1448,7 +1448,7 @@ function CrmPageContent() {
 
       {/* CSV IMPORT MODAL */}
       {showImportModal && (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
+        <div className="erp-sheet-backdrop fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-xl shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="p-4 sm:p-6 border-b border-slate-200 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900">Import leads from CSV</h2>

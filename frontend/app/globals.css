@@ -270,6 +270,23 @@ textarea {
     bottom: env(safe-area-inset-bottom) !important;
   }
 
+  /* Bottom-sheet modals rendered inside .erp-main: .erp-main is position:
+     fixed, so their z-index can't lift them above the bottom nav — keep the
+     sheet (and its action buttons) between the top bar and the nav instead. */
+  .erp-sheet-backdrop {
+    padding-top: calc(env(safe-area-inset-top) + 56px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 72px);
+  }
+
+  .erp-sheet-backdrop > div {
+    max-height: min(90vh, 100%) !important;
+    overflow-y: auto;
+  }
+
+  .is-native-app .erp-sheet-backdrop {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
   .erp-mobile-menu-backdrop {
     position: fixed;
     inset: 0;
