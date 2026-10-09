@@ -592,8 +592,8 @@ function ResultCard({ result, perLabel = "Per Piece", desc, isAdmin = true }: {
     <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-4">
       <p className="text-sm font-bold text-green-800 mb-2">📊 Quote Breakdown</p>
       {desc && <p className="text-xs text-slate-500 mb-3">{desc}</p>}
-      {/* Cost breakdown — admin only */}
-      {isAdmin && (
+      {/* Cost breakdown — admin only (the server omits it for other roles) */}
+      {isAdmin && result.costsVisible && (
         <div className="space-y-1">
           {result.breakdown.map((r, i) => (
             <div key={i} className="flex justify-between text-xs py-1 border-b border-green-100">
@@ -929,8 +929,10 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
   );
 }
 
-function StickerProductionCard({ sticker }: {
+// showCosts=false → prices and production only (no rates, costs or multipliers).
+function StickerProductionCard({ sticker, showCosts }: {
   sticker: NonNullable<Result["sticker"]>;
+  showCosts: boolean;
 }) {
   return (
     <div className="border border-amber-200 rounded-xl p-4 mt-3 bg-amber-50">
@@ -942,29 +944,29 @@ function StickerProductionCard({ sticker }: {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div className={`rounded-lg border p-3 ${sticker.selectedType === "plain" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Plain In-house</p>
-          <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.plainSheetRate}</p>
+          <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets{showCosts && ` × Rs.${sticker.plainSheetRate}`}</p>
           <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.plainTotal)}</p>
-          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.plainSubtotal)} × {sticker.plainMultiplier}</p>
-          {sticker.halfCut && <p className="text-[10px] text-green-700">Includes half cut {fmt(sticker.plainHalfCutCost ?? 0)}</p>}
+          {showCosts && <p className="text-[10px] text-slate-400">Cost {fmt(sticker.plainSubtotal)} × {sticker.plainMultiplier}</p>}
+          {showCosts && sticker.halfCut && <p className="text-[10px] text-green-700">Includes half cut {fmt(sticker.plainHalfCutCost ?? 0)}</p>}
         </div>
         <div className={`rounded-lg border p-3 ${sticker.selectedType === "nontearable" ? "border-green-400 bg-green-50" : "border-amber-200 bg-white"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Non Tearable In-house</p>
-          <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets × Rs.{sticker.nonTearableSheetRate}</p>
+          <p className="text-xs text-slate-500">{sticker.sheetsNeeded.toLocaleString()} sheets{showCosts && ` × Rs.${sticker.nonTearableSheetRate}`}</p>
           <p className="text-sm font-extrabold text-slate-800 mt-2">{fmt(sticker.nonTearableTotal)}</p>
-          <p className="text-[10px] text-slate-400">Cost {fmt(sticker.nonTearableSubtotal)} × {sticker.nonTearableMultiplier}</p>
-          {sticker.halfCut && <p className="text-[10px] text-green-700">Includes half cut {fmt(sticker.nonTearableHalfCutCost ?? 0)}</p>}
+          {showCosts && <p className="text-[10px] text-slate-400">Cost {fmt(sticker.nonTearableSubtotal)} × {sticker.nonTearableMultiplier}</p>}
+          {showCosts && sticker.halfCut && <p className="text-[10px] text-green-700">Includes half cut {fmt(sticker.nonTearableHalfCutCost ?? 0)}</p>}
         </div>
         <div className={`rounded-lg border p-3 ${sticker.clubbingEligible ? "border-purple-300 bg-white" : "border-slate-200 bg-slate-50"}`}>
           <p className="text-xs font-bold text-slate-700 mb-1">Clubbing Plain</p>
-          {sticker.clubbingEligible && sticker.clubbingCost != null && sticker.clubbingTotal != null ? (
+          {sticker.clubbingEligible && sticker.clubbingTotal != null ? (
             <>
               <p className="text-xs text-slate-500">
                 {sticker.clubbingStickersPerBlock > 1
                   ? `${sticker.clubbingBlockColumns}×${sticker.clubbingBlockRows} = ${sticker.clubbingStickersPerBlock}/block · ${sticker.clubbingSets.toLocaleString()} blocks`
-                  : "Area × qty"} × 0.035 + Rs.150
+                  : "Area × qty"}{showCosts && " × 0.035 + Rs.150"}
               </p>
               <p className="text-sm font-extrabold text-purple-800 mt-2">{fmt(sticker.clubbingTotal)}</p>
-              <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {sticker.clubbingMultiplier}</p>
+              {showCosts && sticker.clubbingCost != null && <p className="text-[10px] text-slate-400">Cost {fmt(sticker.clubbingCost)} × {sticker.clubbingMultiplier}</p>}
             </>
           ) : (
             <p className="text-xs font-semibold text-slate-400 mt-2">Nil - {sticker.clubbingUnavailableReason}</p>
@@ -1498,7 +1500,7 @@ export default function RateCalculatorPage() {
       layers, lam: fLam, padSize: fPadSize,
       pads: fPad === "yes" ? fPads : 0,
       punch: fPunch === "yes", envelope: fEnv,
-      multiplier: fMult !== "" ? fMult : undefined,
+      multiplier: isAdmin && fMult !== "" ? fMult : undefined,
       customer: fCustomer, job: fJob,
     };
     const r = await post("forward", body);
@@ -1535,7 +1537,7 @@ export default function RateCalculatorPage() {
       carbonCopy: rCarbonCopy,
       keychainNumber: rKeychainNumber,
       penNumber: rPenNumber,
-      multiplier: rProduct === "sticker" ? undefined : (rMult !== "" ? rMult : undefined),
+      multiplier: rProduct === "sticker" || !isAdmin ? undefined : (rMult !== "" ? rMult : undefined),
       customer: rCustomer,
       envelopeWindow: rProduct === "envelope" ? rWindow : undefined,
       clip: rProduct === "file" ? rFileClip : undefined,
@@ -1833,12 +1835,14 @@ export default function RateCalculatorPage() {
                 </div>
               </Card>
 
-              <Card title="💰 Multiplier">
+              <Card title={isAdmin ? "💰 Multiplier" : "💰 Quote"}>
                 <div className="grid grid-cols-2 gap-2 items-end">
-                  <Field label={`Multiplier (×) — ${multHint}`}>
-                    <Input type="number" step="0.01" placeholder={String(masterMult)}
-                      value={fMult} onChange={e => setFMult(e.target.value === "" ? "" : +e.target.value)} />
-                  </Field>
+                  {isAdmin && (
+                    <Field label={`Multiplier (×) — ${multHint}`}>
+                      <Input type="number" step="0.01" placeholder={String(masterMult)}
+                        value={fMult} onChange={e => setFMult(e.target.value === "" ? "" : +e.target.value)} />
+                    </Field>
+                  )}
                   <button onClick={calcForward} disabled={loading}
                     className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
                     {loading ? "Calculating…" : "🧮 Calculate"}
@@ -1853,12 +1857,15 @@ export default function RateCalculatorPage() {
                 <>
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
                   {currentQuote && <QuotationCopyCard quote={currentQuote} />}
-                  <CommissionPanel
-                    cost={result.subtotal}
-                    total={result.total}
-                    qty={result.totalQty ?? layers[0]?.qty ?? 0}
-                    isAdmin={isAdmin}
-                  />
+                  {/* Commission = profit ÷ 4 would reveal cost — admin roles only. */}
+                  {isAdmin && result.costsVisible && (
+                    <CommissionPanel
+                      cost={result.subtotal}
+                      total={result.total}
+                      qty={result.totalQty ?? layers[0]?.qty ?? 0}
+                      isAdmin={isAdmin}
+                    />
+                  )}
                 </>
               )}
               {!result && (
@@ -1935,7 +1942,7 @@ export default function RateCalculatorPage() {
                       {stickerBestFit.perSheet > 0 ? (
                         <>
                           <strong>{stickerBestFit.cols}×{stickerBestFit.rows} = {stickerBestFit.perSheet}/sheet</strong>{stickerBestFit.rotated ? " (rotated)" : ""} → <strong>{stickerSheetsNeeded.toLocaleString()} sheets</strong>
-                          {" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong>
+                          {isAdmin && <>{" "}· base <strong>{fmt(stickerSelectedBaseCost)}</strong>{rStickerHalfCut ? <> + half cutting <strong>{fmt(stickerHalfCutCost)}</strong></> : ""} → cost <strong>{fmt(stickerSelectedCost)}</strong> → auto multiplier <strong>×{stickerAutoMultiplier}</strong></>}
                         </>
                       ) : (
                         <span className="text-amber-600 font-semibold">size does not fit usable area</span>
@@ -1991,21 +1998,23 @@ export default function RateCalculatorPage() {
                       <Field label="Clip">
                         <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
                           <input type="checkbox" checked={rPpClip} onChange={e => setRPpClip(e.target.checked)} />
-                          Add clip (+Rs.{(ppRates?.clip ?? 1.25).toFixed(2)})
+                          Add clip{isAdmin && ` (+Rs.${(ppRates?.clip ?? 1.25).toFixed(2)})`}
                         </label>
                       </Field>
                       <Field label="Pocket">
                         <Select value={rPpPocketSides} onChange={e => setRPpPocketSides(+e.target.value)}>
                           <option value={0}>No Pocket</option>
-                          <option value={1}>Yes - 1 Side (+Rs.2.50)</option>
-                          <option value={2}>Yes - 2 Side (+Rs.5.00)</option>
+                          <option value={1}>{isAdmin ? "Yes - 1 Side (+Rs.2.50)" : "Yes - 1 Side"}</option>
+                          <option value={2}>{isAdmin ? "Yes - 2 Side (+Rs.5.00)" : "Yes - 2 Side"}</option>
                         </Select>
                       </Field>
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} PP files</strong> → tier <strong>{ppTier.toLocaleString()}</strong> → base <strong>{fmt(ppBaseRate)}</strong>/file
-                      {" + "}GST {ppGstPct}% × multiplier {ppMult} → approx <strong>{fmt(ppPreviewPerFile)}</strong>/file
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        <strong>{rQty.toLocaleString()} PP files</strong> → tier <strong>{ppTier.toLocaleString()}</strong> → base <strong>{fmt(ppBaseRate)}</strong>/file
+                        {" + "}GST {ppGstPct}% × multiplier {ppMult} → approx <strong>{fmt(ppPreviewPerFile)}</strong>/file
+                      </div>
+                    )}
                   </>
                 ) : rProduct === "diagnosticbag" ? (
                   <>
@@ -2020,10 +2029,12 @@ export default function RateCalculatorPage() {
                         </Select>
                       </Field>
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} {rBagSize === "big" ? "CT scan bags" : "X-ray bags"}</strong> → tier <strong>{bagTier.toLocaleString()}</strong> → base <strong>{fmt(bagBaseRate)}</strong>/bag
-                      {" + "}GST {bagGstPct}% × multiplier {bagMult} → approx <strong>{fmt(bagPreviewPerPiece)}</strong>/bag
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        <strong>{rQty.toLocaleString()} {rBagSize === "big" ? "CT scan bags" : "X-ray bags"}</strong> → tier <strong>{bagTier.toLocaleString()}</strong> → base <strong>{fmt(bagBaseRate)}</strong>/bag
+                        {" + "}GST {bagGstPct}% × multiplier {bagMult} → approx <strong>{fmt(bagPreviewPerPiece)}</strong>/bag
+                      </div>
+                    )}
                   </>
                 ) : rProduct === "nonwovenbag" ? (
                   <>
@@ -2041,7 +2052,7 @@ export default function RateCalculatorPage() {
                       <Field label="Printing">
                         <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
                           <option value="single">Single Color</option>
-                          <option value="multicolor">{`Multicolor (+₹${nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)`}</option>
+                          <option value="multicolor">{isAdmin ? `Multicolor (+₹${nonWovenRates?.multicolorExtraPerBag ?? 2}/bag)` : "Multicolor"}</option>
                         </Select>
                       </Field>
                     </div>
@@ -2052,18 +2063,22 @@ export default function RateCalculatorPage() {
                           <option value="2">2 Plates — different design each side</option>
                         </Select>
                       </Field>
-                      <Field label={`Per Plate Rate (₹) — default ₹${nonWovenDefaultPlateRate}`}>
-                        <Input type="number" value={rNonWovenPerPlateRate}
-                          onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenDefaultPlateRate)} />
-                      </Field>
+                      {isAdmin && (
+                        <Field label={`Per Plate Rate (₹) — default ₹${nonWovenDefaultPlateRate}`}>
+                          <Input type="number" value={rNonWovenPerPlateRate}
+                            onChange={e => setRNonWovenPerPlateRate(e.target.value === "" ? "" : +e.target.value)} placeholder={String(nonWovenDefaultPlateRate)} />
+                        </Field>
+                      )}
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} bags</strong> ÷ <strong>{nonWovenBagsPerKg}</strong>/kg = <strong>{nonWovenTotalKg.toFixed(2)} kg</strong> × ₹{nonWovenRatePerKg}/kg = <strong>{fmt(nonWovenFabricCost)}</strong>
-                      {" "}+ printing <strong>{fmt(nonWovenPrintingCost)}</strong>
-                      {nonWovenExtraCost > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraCost)}</strong></> : ""}
-                      {" "}+ <strong>{nonWovenPlates} plate{nonWovenPlates > 1 ? "s" : ""}</strong> × ₹{nonWovenPerPlateRateVal} = <strong>{fmt(nonWovenPlateCost)}</strong>
-                      {" "}→ cost <strong>{fmt(nonWovenSizeSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        <strong>{rQty.toLocaleString()} bags</strong> ÷ <strong>{nonWovenBagsPerKg}</strong>/kg = <strong>{nonWovenTotalKg.toFixed(2)} kg</strong> × ₹{nonWovenRatePerKg}/kg = <strong>{fmt(nonWovenFabricCost)}</strong>
+                        {" "}+ printing <strong>{fmt(nonWovenPrintingCost)}</strong>
+                        {nonWovenExtraCost > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraCost)}</strong></> : ""}
+                        {" "}+ <strong>{nonWovenPlates} plate{nonWovenPlates > 1 ? "s" : ""}</strong> × ₹{nonWovenPerPlateRateVal} = <strong>{fmt(nonWovenPlateCost)}</strong>
+                        {" "}→ cost <strong>{fmt(nonWovenSizeSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
+                      </div>
+                    )}
                   </>
                 ) : rProduct === "handlebag" ? (
                   <>
@@ -2094,10 +2109,12 @@ export default function RateCalculatorPage() {
                         </Select>
                       </Field>
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 120}/kg</strong> (Rates tab) · 2 sides fabric = 2 × L × H × GSM × rate ÷ 1550000
-                      {" "}+ Gazzette = (wall + 1.5) × (2H + L) × wall GSM × rate ÷ 1550000 + stitching + printing slab + cutting &amp; wastage → × multiplier. Click Calculate for the breakdown.
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 120}/kg</strong> (Rates tab) · 2 sides fabric = 2 × L × H × GSM × rate ÷ 1550000
+                        {" "}+ Gazzette = (wall + 1.5) × (2H + L) × wall GSM × rate ÷ 1550000 + stitching + printing slab + cutting &amp; wastage → × multiplier. Click Calculate for the breakdown.
+                      </div>
+                    )}
                     {handleBagInvalid && (
                       <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
                         Quantity, Length, Height and GSM must be greater than 0{rHandleBagGusset > 0 ? ", and Wall GSM is required when Gazzette is given" : ""}.
@@ -2131,10 +2148,12 @@ export default function RateCalculatorPage() {
                         </label>
                       </Field>
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} books</strong> → base <strong>{fmt(dotMatrixBaseRate)}</strong>/book
-                      {rCarbonCopy ? <> + carbon <strong>{fmt(dotMatrixCarbonRate)}</strong>/book</> : ""} × multiplier {dotMatrixMult} → approx <strong>{fmt(dotMatrixPreviewPerBook)}</strong>/book
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        <strong>{rQty.toLocaleString()} books</strong> → base <strong>{fmt(dotMatrixBaseRate)}</strong>/book
+                        {rCarbonCopy ? <> + carbon <strong>{fmt(dotMatrixCarbonRate)}</strong>/book</> : ""} × multiplier {dotMatrixMult} → approx <strong>{fmt(dotMatrixPreviewPerBook)}</strong>/book
+                      </div>
+                    )}
                   </>
                 ) : rProduct === "keychain" ? (
                   <>
@@ -2150,9 +2169,11 @@ export default function RateCalculatorPage() {
                         </Select>
                       </Field>
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} keychains</strong> → base <strong>{fmt(keychainBaseRate)}</strong>/pc × multiplier {keychainMult} → approx <strong>{fmt(keychainPreviewPerPiece)}</strong>/pc
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        <strong>{rQty.toLocaleString()} keychains</strong> → base <strong>{fmt(keychainBaseRate)}</strong>/pc × multiplier {keychainMult} → approx <strong>{fmt(keychainPreviewPerPiece)}</strong>/pc
+                      </div>
+                    )}
                   </>
                 ) : rProduct === "pen" ? (
                   <>
@@ -2168,9 +2189,11 @@ export default function RateCalculatorPage() {
                         </Select>
                       </Field>
                     </div>
-                    <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                      <strong>{rQty.toLocaleString()} pens</strong> → base <strong>{fmt(penBaseRate)}</strong>/pc × multiplier {penMult} → approx <strong>{fmt(penPreviewPerPiece)}</strong>/pc
-                    </div>
+                    {isAdmin && (
+                      <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
+                        <strong>{rQty.toLocaleString()} pens</strong> → base <strong>{fmt(penBaseRate)}</strong>/pc × multiplier {penMult} → approx <strong>{fmt(penPreviewPerPiece)}</strong>/pc
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -2220,7 +2243,7 @@ export default function RateCalculatorPage() {
                         <Field label="Window">
                           <Select value={rWindow ? "yes" : "no"} onChange={e => setRWindow(e.target.value === "yes")}>
                             <option value="no">No</option>
-                            <option value="yes">Yes (+₹200/1000)</option>
+                            <option value="yes">{isAdmin ? "Yes (+₹200/1000)" : "Yes"}</option>
                           </Select>
                         </Field>
                       )}
@@ -2236,7 +2259,7 @@ export default function RateCalculatorPage() {
                         </Field>
                       )}
                       {rProduct === "file" && (
-                        <Field label={`File Clip (+₹${rates?.fileClip ?? 1}/file)`}>
+                        <Field label={isAdmin ? `File Clip (+₹${rates?.fileClip ?? 1}/file)` : "File Clip"}>
                           <label className="flex h-[30px] items-center gap-2 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700">
                             <input type="checkbox" checked={rFileClip} onChange={e => setRFileClip(e.target.checked)} />
                             Add clip
@@ -2244,7 +2267,7 @@ export default function RateCalculatorPage() {
                         </Field>
                       )}
                       {rProduct === "file" && (
-                        <Field label={`Pocket (+₹${rates?.filePocket ?? 2.2}/file)`}>
+                        <Field label={isAdmin ? `Pocket (+₹${rates?.filePocket ?? 2.2}/file)` : "Pocket"}>
                           <Select value={rFilePocket ? "yes" : "no"} onChange={e => setRFilePocket(e.target.value === "yes")}>
                             <option value="no">No</option>
                             <option value="yes">Yes</option>
@@ -2271,9 +2294,10 @@ export default function RateCalculatorPage() {
                 )}
               </Card>
 
-              <Card title="💰 Multiplier">
+              <Card title={isAdmin ? "💰 Multiplier" : "💰 Quote"}>
                 <div className="grid grid-cols-2 gap-2 items-end">
-                  {rProduct === "sticker" ? (
+                  {/* Multiplier (and sticker auto tiers) reveal cost — admin roles only; the server ignores it from others. */}
+                  {!isAdmin ? null : rProduct === "sticker" ? (
                     <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
                       <span className="font-semibold">Auto:</span> cost {fmt(stickerSelectedCost)} → ×{stickerAutoMultiplier}
                       <span className="block text-[10px] text-amber-600">Under 500=4 · 500-1000=3 · 1000-3000=2 · 3000+=1.67</span>
@@ -2299,17 +2323,20 @@ export default function RateCalculatorPage() {
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
                   {currentQuote && <QuotationCopyCard quote={currentQuote} />}
                   {result?.sticker && (
-                    <StickerProductionCard sticker={result.sticker} />
+                    <StickerProductionCard sticker={result.sticker} showCosts={!!(isAdmin && result.costsVisible)} />
                   )}
                   {result?.clubbing && (
                     <ClubbingComparisonCard clubbing={result.clubbing} multiplier={result.multiplier} />
                   )}
-                  <CommissionPanel
-                    cost={result.subtotal}
-                    total={result.total}
-                    qty={result.totalQty ?? rQty}
-                    isAdmin={isAdmin}
-                  />
+                  {/* Commission = profit ÷ 4 would reveal cost — admin roles only. */}
+                  {isAdmin && result.costsVisible && (
+                    <CommissionPanel
+                      cost={result.subtotal}
+                      total={result.total}
+                      qty={result.totalQty ?? rQty}
+                      isAdmin={isAdmin}
+                    />
+                  )}
                 </>
               )}
               {!result && (
@@ -2782,8 +2809,10 @@ export default function RateCalculatorPage() {
                           </details>
                         )}
                       </div>
-                      <button onClick={() => deleteHistoryItem(h.id)}
-                        className="shrink-0 text-slate-300 hover:text-red-500 text-lg font-bold leading-none" title="Delete">x</button>
+                      {isAdmin && (
+                        <button onClick={() => deleteHistoryItem(h.id)}
+                          className="shrink-0 text-slate-300 hover:text-red-500 text-lg font-bold leading-none" title="Delete">x</button>
+                      )}
                     </div>
                   </div>
                 ))}

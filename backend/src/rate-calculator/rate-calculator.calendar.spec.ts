@@ -140,6 +140,7 @@ describe('Calendar cost calculator', () => {
     expect((await svc.getRatesForRole('SALES_AGENT')).calendarTinning).toBeUndefined();
     expect((await svc.getRatesForRole('ADMIN')).calendarTinning).toEqual({ top: 2, topBottom: 3.5 });
   });
+  // (Other GET /rates rules are covered in rate-calculator.cost-visibility.spec.ts.)
 
   it('options come from master rates (names only, no rates)', async () => {
     const opts: any = await makeRawService().getCalendarOptions();
@@ -169,7 +170,7 @@ describe('Calendar cost calculator', () => {
     const sales: any[] = await listSvc.listHistory(100, 'SALES_AGENT');
     expect(sales[0]).toMatchObject({ subtotal: null, multiplier: null, breakdown: [] });
     expect(sales[0].inputParams.multiplier).toBeUndefined();
-    expect(sales[1]).toEqual(rows[1]);                                          // other products unchanged
+    expect(sales[1]).toMatchObject({ subtotal: null, multiplier: null, breakdown: [] }); // every product redacted
     expect(await listSvc.listHistory(100, 'ADMIN')).toEqual(rows);
   });
 

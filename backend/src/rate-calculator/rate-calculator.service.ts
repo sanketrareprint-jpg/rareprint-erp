@@ -97,6 +97,67 @@ export function canSeeRateCosts(role?: string | null): boolean {
   return !!role && RATE_COST_ROLES.includes(role);
 }
 
+// ── Cost redaction for roles that may only see prices ───────────────────────
+// Request fields that set a ₹ cost or the multiplier directly. Comparing two
+// prices with different values would reveal the multiplier (and so the cost),
+// so they are ignored for roles that can't see costs.
+const COST_OVERRIDE_FIELDS = ['multiplier', 'nonWovenPerPlateRate', 'nonWovenRatePerKg', 'nonWovenPrintingCostPerBag'];
+
+function withoutCostOverrides(dto: any): any {
+  const safe = { ...(dto ?? {}) };
+  for (const f of COST_OVERRIDE_FIELDS) delete safe[f];
+  return safe;
+}
+
+// Master rates with every value removed but every key kept, so dropdowns built
+// from the keys (paper types, bag sizes, keychain/pen numbers, ...) still work.
+// `tiers` arrays are quantity thresholds, not money, and are kept.
+function stripRateValues(value: any, key?: string): any {
+  if (Array.isArray(value)) return key === 'tiers' ? value : value.map(v => stripRateValues(v));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, stripRateValues(v, k)]));
+  }
+  return typeof value === 'number' || typeof value === 'string' ? null : value;
+}
+
+// Drops description segments ("a | b | c") that carry a ₹ amount.
+function stripMoneyFromDescription(description: any): any {
+  if (typeof description !== 'string') return description;
+  return description.split(' | ').filter(part => !/Rs\.|₹/.test(part)).join(' | ');
+}
+
+const STICKER_PUBLIC_FIELDS = [
+  'width', 'height', 'area', 'usableSheet', 'openSheet', 'columns', 'rows', 'rotated', 'stickersPerSheet', 'sheetsNeeded',
+  'selectedType', 'halfCut', 'halfCutPct', 'dieCutting', 'dieCuttingApplies', 'dieW', 'dieH', 'dieArea',
+  'clubbingEligible', 'clubbingBlockColumns', 'clubbingBlockRows', 'clubbingStickersPerBlock', 'clubbingBlockArea',
+  'clubbingSets', 'clubbingUnavailableReason', 'plainTotal', 'nonTearableTotal', 'clubbingTotal',
+];
+
+// Forward/Reverse result → price + production quantities only.
+function redactQuoteResult(r: any): any {
+  const out: any = {
+    breakdown: [],
+    total: r.total,
+    perPiece: r.perPiece,
+    totalPieces: r.totalPieces,
+    totalQty: r.totalQty,
+    totalParentSheets: r.totalParentSheets,
+    cutsPerSheet: r.cutsPerSheet,
+    description: stripMoneyFromDescription(r.description),
+    customer: r.customer,
+    job: r.job,
+    costsVisible: false,
+  };
+  if (r.sticker) out.sticker = Object.fromEntries(STICKER_PUBLIC_FIELDS.map(f => [f, r.sticker[f]]));
+  return out;
+}
+
+// History row → no cost, breakdown, multiplier or cost-override inputs.
+function redactHistoryRow(h: any): any {
+  const inputParams = withoutCostOverrides(h.inputParams);
+  return { ...h, breakdown: [], subtotal: null, multiplier: null, inputParams };
+}
+
 const DEFAULT_RATES: any = {
   paper: {
     '1823-bond70': 850, '1823-bond80': 950,
@@ -265,13 +326,25 @@ export class RateCalculatorService {
     return DEFAULT_RATES;
   }
 
-  // GET /rates for the UI. Calendar tinning rates are only used by the
-  // server-side calendar calc, so roles that can't see costs don't get them.
+  // GET /rates for the UI. Roles that can't see costs get the keys only (for
+  // dropdowns) with every rate value removed; calendar tinning is dropped.
   async getRatesForRole(role?: string): Promise<any> {
     const rates = await this.getRates();
     if (canSeeRateCosts(role)) return rates;
     const { calendarTinning: _t, ...rest } = rates;
-    return rest;
+    return stripRateValues(rest);
+  }
+
+  // Role-aware entry points for POST /forward and /reverse: non-cost roles
+  // can't override costs/multiplier and get price + production data only.
+  async calcForwardForRole(dto: any, role?: string) {
+    if (canSeeRateCosts(role)) return { ...(await this.calcForward(dto)), costsVisible: true };
+    return redactQuoteResult(await this.calcForward(withoutCostOverrides(dto)));
+  }
+
+  async calcReverseForRole(dto: any, role?: string) {
+    if (canSeeRateCosts(role)) return { ...(await this.calcReverse(dto)), costsVisible: true };
+    return redactQuoteResult(await this.calcReverse(withoutCostOverrides(dto)));
   }
 
   async saveRates(rates: any): Promise<{ success: boolean }> {
@@ -328,16 +401,36 @@ export class RateCalculatorService {
 
   // ── Quote History ────────────────────────────────────────────────────────
   async saveHistory(dto: any, role?: string): Promise<{ success: boolean; id: string }> {
+    // Never trust client-sent amounts: recompute from the saved inputs so the
+    // history cost/total are authoritative. Roles that can't see costs never
+    // receive a cost to send, and can't record a custom multiplier/cost.
+    const showCosts = canSeeRateCosts(role);
+    const p = showCosts ? (dto?.inputParams ?? {}) : withoutCostOverrides(dto?.inputParams);
+    let full: any;
     if (dto?.calcType === 'calendar') {
-      // Never trust client-sent amounts for calendar quotes: recompute from
-      // the saved inputs so history cost/total are always authoritative (and
-      // a non-cost role can't record a custom multiplier).
-      const p = dto.inputParams ?? {};
-      const full = await this.computeCalendar(
+      full = await this.computeCalendar(
         { qty: p.qty, size: p.calendarSize, paper: p.paper, pages: p.calendarPages, tinning: p.calendarTinning, multiplier: p.multiplier },
-        canSeeRateCosts(role),
+        showCosts,
       );
-      dto = { ...dto, qty: full.totalPieces, breakdown: full.breakdown, subtotal: full.subtotal, total: full.total, perPiece: full.perPiece, multiplier: full.multiplier };
+    } else if (dto?.calcType === 'reverse') {
+      full = await this.calcReverse(p);
+    } else if (dto?.calcType === 'forward') {
+      full = await this.calcForward(p);
+    } else {
+      throw new BadRequestException('Unknown quote type');
+    }
+    dto = {
+      ...dto,
+      inputParams: { ...(dto.inputParams ?? {}), ...p },
+      breakdown: full.breakdown,
+      subtotal: full.subtotal,
+      total: full.total,
+      perPiece: full.perPiece ?? null,
+      multiplier: full.multiplier,
+    };
+    if (!showCosts) {
+      // Keep the stored inputs free of overrides the server ignored.
+      for (const f of COST_OVERRIDE_FIELDS) delete dto.inputParams[f];
     }
     try {
       const rec = await (this.prisma as any).quoteHistory.create({
@@ -369,12 +462,8 @@ export class RateCalculatorService {
         take: limit,
       });
       if (canSeeRateCosts(role)) return rows;
-      // Calendar quotes: strip cost data for roles that may only see the price.
-      return rows.map((h: any) => {
-        if (h.calcType !== 'calendar') return h;
-        const { multiplier: _m, ...inputParams } = h.inputParams ?? {};
-        return { ...h, breakdown: [], subtotal: null, multiplier: null, inputParams };
-      });
+      // Roles that may only see the price get no cost data on any quote.
+      return rows.map(redactHistoryRow);
     } catch (e: any) {
       console.error('listHistory error', e?.message);
       return [];

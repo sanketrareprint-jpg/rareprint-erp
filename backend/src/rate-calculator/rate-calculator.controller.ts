@@ -2,6 +2,12 @@ import { Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, Forb
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RateCalculatorService, canSeeRateCosts } from './rate-calculator.service';
 
+// Only roles that may see costs (ADMIN/INHOUSE/ACCOUNTS — the roles that see
+// the Rates and Clubbing tabs) may read raw cost data or change rate config.
+function assertCostRole(req: any): void {
+  if (!canSeeRateCosts(req.user?.role)) throw new ForbiddenException('Only admin roles can access this');
+}
+
 @Controller('rate-calculator')
 @UseGuards(JwtAuthGuard)
 export class RateCalculatorController {
@@ -10,21 +16,24 @@ export class RateCalculatorController {
   @Get('rates')
   getRates(@Req() req: any) { return this.svc.getRatesForRole(req.user?.role); }
 
-  // Only roles that see the Rates tab (ADMIN/INHOUSE/ACCOUNTS) may change master rates.
   @Post('rates')
   saveRates(@Body() dto: any, @Req() req: any) {
-    if (!canSeeRateCosts(req.user?.role)) throw new ForbiddenException('Only admin roles can change master rates');
+    assertCostRole(req);
     return this.svc.saveRates(dto);
   }
 
   @Post('forward')
-  calcForward(@Body() dto: any) { return this.svc.calcForward(dto); }
+  calcForward(@Body() dto: any, @Req() req: any) { return this.svc.calcForwardForRole(dto, req.user?.role); }
 
   @Post('reverse')
-  calcReverse(@Body() dto: any) { return this.svc.calcReverse(dto); }
+  calcReverse(@Body() dto: any, @Req() req: any) { return this.svc.calcReverseForRole(dto, req.user?.role); }
 
+  // Raw cost calculator with client-supplied rates (not used by the UI).
   @Post('sticker')
-  calcSticker(@Body() dto: any) { return this.svc.calcSticker(dto); }
+  calcSticker(@Body() dto: any, @Req() req: any) {
+    assertCostRole(req);
+    return this.svc.calcSticker(dto);
+  }
 
   @Get('calendar/options')
   getCalendarOptions() { return this.svc.getCalendarOptions(); }
@@ -48,12 +57,21 @@ export class RateCalculatorController {
   saveHistory(@Body() dto: any, @Req() req: any) { return this.svc.saveHistory(dto, req.user?.role); }
 
   @Delete('history/:id')
-  deleteHistory(@Param('id') id: string) { return this.svc.deleteHistory(id); }
+  deleteHistory(@Param('id') id: string, @Req() req: any) {
+    assertCostRole(req);
+    return this.svc.deleteHistory(id);
+  }
 
   // ── Clubbing Vendor Rates ──────────────────────────────────────────────────
   @Get('clubbing-rates')
-  getClubbingRates() { return this.svc.getClubbingRates(); }
+  getClubbingRates(@Req() req: any) {
+    assertCostRole(req);
+    return this.svc.getClubbingRates();
+  }
 
   @Post('clubbing-rates')
-  saveClubbingRates(@Body() dto: any) { return this.svc.saveClubbingRates(dto); }
+  saveClubbingRates(@Body() dto: any, @Req() req: any) {
+    assertCostRole(req);
+    return this.svc.saveClubbingRates(dto);
+  }
 }
