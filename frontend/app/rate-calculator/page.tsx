@@ -1266,6 +1266,14 @@ export default function RateCalculatorPage() {
     setCResult(null); setCError(null); setCQuoted(false);
   }, [cQty, cSize, cPaper, cPages, cTinning, cMult]);
 
+  // Reverse → Product Type switching to/from Calendar swaps which calculator is
+  // shown; clear both results and the quote so one never shows under the other.
+  const rIsCalendar = rProduct === "calendar";
+  useEffect(() => {
+    setResult(null); setCurrentQuote(null);
+    setCResult(null); setCError(null); setCQuoted(false);
+  }, [rIsCalendar]);
+
 
   // Auto-set size/parent when product changes
   useEffect(() => {
@@ -1752,6 +1760,96 @@ export default function RateCalculatorPage() {
   const penMult = rMult !== "" ? rMult : (penRates?.multiplier ?? 0);
   const penPreviewPerPiece = penBaseRate * penMult;
 
+  // Calendar calculator UI — shown in the Calendar tab and in Reverse when
+  // Product Type = Calendar. Same state + /rate-calculator/calendar endpoint.
+  const renderCalendarView = (productPicker?: React.ReactNode) => (
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(460px,2fr)] xl:grid-cols-[minmax(0,5fr)_minmax(560px,4fr)] gap-2 items-start">
+          <div>
+            {productPicker}
+            <div className="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-xs text-blue-700 mb-2">
+              📌 Paper, plate and printing rates come from the Rates tab · tinning from Calendar → Tinning Rates · no wastage.
+            </div>
+            <Card title="📅 Calendar">
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Customer Name"><Input value={cCustomer} onChange={e => setCCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
+                <Field label="Quantity">
+                  <Input type="number" min="1" step="1" value={cQty} onChange={e => setCQty(e.target.value === "" ? "" : +e.target.value)} />
+                </Field>
+                <Field label="Calendar Size">
+                  <Select value={cSize} onChange={e => setCSize(e.target.value)}>
+                    {(cOptions?.sizes ?? []).map(o => <option key={o.value} value={o.value}>{`${o.label} (prints on ${o.printingPaper})`}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Paper Quality / GSM">
+                  {calendarPaperOptions.length > 0 ? (
+                    <Select value={cPaper} onChange={e => setCPaper(e.target.value)}>
+                      {calendarPaperOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </Select>
+                  ) : (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      {cOptionsError ?? (!cOptions ? "Loading options…" : "No Maplitho/Art paper rate for this sheet size. Please update the Rates module.")}
+                    </p>
+                  )}
+                </Field>
+                <Field label="Pages">
+                  <Select value={cPages} onChange={e => setCPages(e.target.value)}>
+                    {(cOptions?.pages ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Tinning (compulsory)">
+                  <Select value={cTinning} onChange={e => setCTinning(e.target.value)}>
+                    {(cOptions?.tinning ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </Select>
+                </Field>
+                {isAdmin && (
+                  <Field label={`Multiplier (×) for quotation — ${multHint}`}>
+                    <Input type="number" step="0.01" placeholder={String(masterMult)}
+                      value={cMult} onChange={e => setCMult(e.target.value === "" ? "" : +e.target.value)} />
+                  </Field>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={calcCalendar} disabled={cLoading}
+                  className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
+                  {cLoading ? "Calculating…" : "🧮 Calculate Cost"}
+                </button>
+                <button onClick={resetCalendar}
+                  className="bg-slate-100 text-slate-700 rounded py-1.5 text-xs font-semibold hover:bg-slate-200">
+                  Reset
+                </button>
+              </div>
+              {cError && (
+                <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5">⚠ {cError}</p>
+              )}
+            </Card>
+          </div>
+
+          <div className="lg:sticky lg:top-0">
+            {cResult?.calendar ? (
+              <>
+                <CalendarEstimateCard result={cResult} />
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button onClick={copyCalendarBreakdown}
+                    className="bg-slate-900 text-white rounded py-1.5 text-xs font-semibold hover:bg-slate-700">
+                    {cCopied ? "Copied" : "📋 Copy Cost Breakdown"}
+                  </button>
+                  <button onClick={useCalendarInQuotation} disabled={cQuoting || cQuoted}
+                    className="bg-green-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">
+                    {cQuoting ? "Saving…" : cQuoted ? "✓ Added to Quotation" : "🧾 Use in Quotation"}
+                  </button>
+                </div>
+                {currentQuote && <QuotationCopyCard quote={currentQuote} />}
+              </>
+            ) : (
+              <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
+                <span className="text-2xl">📅</span>
+                Fill details and click Calculate Cost
+              </div>
+            )}
+          </div>
+        </div>
+  );
+
   return (
     <DashboardShell>
       <div className="flex flex-col h-full overflow-hidden">
@@ -1762,6 +1860,7 @@ export default function RateCalculatorPage() {
             {TABS.map(t => (
               <button key={t.id} onClick={() => {
                 setTab(t.id); setResult(null); setCurrentQuote(null);
+                setCResult(null); setCError(null); setCQuoted(false);
                 if (t.id === "history") loadHistory();
                 if (t.id === "calendar") loadCalendarOptions();
                 if (t.id === "clubbing") loadClubbing();
@@ -1891,7 +1990,19 @@ export default function RateCalculatorPage() {
         )}
 
         {/* ── REVERSE ── */}
-        {tab === "reverse" && (
+        {tab === "reverse" && rProduct === "calendar" && renderCalendarView(
+          <Card title="📦 Product">
+            <Field label="Product Type">
+              <Select value={rProduct} onChange={e => setRProduct(e.target.value)}>
+                {Object.entries(PRODUCT_CONFIG).map(([val, cfg]) => (
+                  <option key={val} value={val}>{cfg.label}</option>
+                ))}
+                <option value="calendar">Calendar</option>
+              </Select>
+            </Field>
+          </Card>
+        )}
+        {tab === "reverse" && rProduct !== "calendar" && (
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(460px,2fr)] xl:grid-cols-[minmax(0,5fr)_minmax(560px,4fr)] gap-2 items-start">
             {/* Left: inputs */}
             <div>
@@ -1907,6 +2018,7 @@ export default function RateCalculatorPage() {
                       {Object.entries(PRODUCT_CONFIG).map(([val, cfg]) => (
                         <option key={val} value={val}>{cfg.label}</option>
                       ))}
+                      <option value="calendar">Calendar</option>
                     </Select>
                   </Field>
                 </div>
@@ -2361,92 +2473,7 @@ export default function RateCalculatorPage() {
           </div>
         )}
         {/* ── CALENDAR ── */}
-        {tab === "calendar" && (
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(460px,2fr)] xl:grid-cols-[minmax(0,5fr)_minmax(560px,4fr)] gap-2 items-start">
-            <div>
-              <div className="bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-xs text-blue-700 mb-2">
-                📌 Paper, plate and printing rates come from the Rates tab · tinning from Calendar → Tinning Rates · no wastage.
-              </div>
-              <Card title="📅 Calendar">
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Customer Name"><Input value={cCustomer} onChange={e => setCCustomer(e.target.value)} placeholder="e.g. Raj Enterprises" /></Field>
-                  <Field label="Quantity">
-                    <Input type="number" min="1" step="1" value={cQty} onChange={e => setCQty(e.target.value === "" ? "" : +e.target.value)} />
-                  </Field>
-                  <Field label="Calendar Size">
-                    <Select value={cSize} onChange={e => setCSize(e.target.value)}>
-                      {(cOptions?.sizes ?? []).map(o => <option key={o.value} value={o.value}>{`${o.label} (prints on ${o.printingPaper})`}</option>)}
-                    </Select>
-                  </Field>
-                  <Field label="Paper Quality / GSM">
-                    {calendarPaperOptions.length > 0 ? (
-                      <Select value={cPaper} onChange={e => setCPaper(e.target.value)}>
-                        {calendarPaperOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </Select>
-                    ) : (
-                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                        {cOptionsError ?? (!cOptions ? "Loading options…" : "No Maplitho/Art paper rate for this sheet size. Please update the Rates module.")}
-                      </p>
-                    )}
-                  </Field>
-                  <Field label="Pages">
-                    <Select value={cPages} onChange={e => setCPages(e.target.value)}>
-                      {(cOptions?.pages ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </Select>
-                  </Field>
-                  <Field label="Tinning (compulsory)">
-                    <Select value={cTinning} onChange={e => setCTinning(e.target.value)}>
-                      {(cOptions?.tinning ?? []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </Select>
-                  </Field>
-                  {isAdmin && (
-                    <Field label={`Multiplier (×) for quotation — ${multHint}`}>
-                      <Input type="number" step="0.01" placeholder={String(masterMult)}
-                        value={cMult} onChange={e => setCMult(e.target.value === "" ? "" : +e.target.value)} />
-                    </Field>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <button onClick={calcCalendar} disabled={cLoading}
-                    className="bg-brand-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-brand-700 disabled:opacity-60">
-                    {cLoading ? "Calculating…" : "🧮 Calculate Cost"}
-                  </button>
-                  <button onClick={resetCalendar}
-                    className="bg-slate-100 text-slate-700 rounded py-1.5 text-xs font-semibold hover:bg-slate-200">
-                    Reset
-                  </button>
-                </div>
-                {cError && (
-                  <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5">⚠ {cError}</p>
-                )}
-              </Card>
-            </div>
-
-            <div className="lg:sticky lg:top-0">
-              {cResult?.calendar ? (
-                <>
-                  <CalendarEstimateCard result={cResult} />
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <button onClick={copyCalendarBreakdown}
-                      className="bg-slate-900 text-white rounded py-1.5 text-xs font-semibold hover:bg-slate-700">
-                      {cCopied ? "Copied" : "📋 Copy Cost Breakdown"}
-                    </button>
-                    <button onClick={useCalendarInQuotation} disabled={cQuoting || cQuoted}
-                      className="bg-green-600 text-white rounded py-1.5 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">
-                      {cQuoting ? "Saving…" : cQuoted ? "✓ Added to Quotation" : "🧾 Use in Quotation"}
-                    </button>
-                  </div>
-                  {currentQuote && <QuotationCopyCard quote={currentQuote} />}
-                </>
-              ) : (
-                <div className="hidden lg:flex items-center justify-center h-48 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-400 flex-col gap-2">
-                  <span className="text-2xl">📅</span>
-                  Fill details and click Calculate Cost
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {tab === "calendar" && renderCalendarView()}
 
         {/* ── MASTER RATES ── */}
         {tab === "rates" && (
