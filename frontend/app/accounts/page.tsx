@@ -78,8 +78,17 @@ type UpsellPendingOrder = {
   requestedByName?: string | null;
   requestedAt: string;
   orderTotal: number; addedAmount: number; newTotal: number; verifiedPaid: number;
-  itemChanges: { itemId: string; productName: string; fromQuantity: number; fromUnitPrice: number; fromLineTotal: number; quantity: number; unitPrice: number; lineTotal: number; itemProductionStage: string | null }[];
-  newItems: { productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number; productionNotes: string; artworkNotes: string | null }[];
+  hasPendingPayments?: boolean;
+  existingItems?: (UpsellItemInfo & { itemId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number })[];
+  itemChanges: (UpsellItemInfo & { itemId: string; productName: string; fromQuantity: number; fromUnitPrice: number; fromLineTotal: number; quantity: number; unitPrice: number; lineTotal: number; itemProductionStage: string | null })[];
+  newItems: (UpsellItemInfo & { productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number; productionNotes: string; artworkNotes: string | null })[];
+};
+
+// Product details + cost/margin the backend adds to each upsell row.
+type UpsellItemInfo = {
+  sku?: string | null; sizeInches?: string | null; gsm?: number | null; sides?: string | null;
+  isFree?: boolean;
+  costPerUnit?: number | null; costTotal?: number | null; marginPct?: number | null;
 };
 
 type PendingPayment = {
@@ -2309,54 +2318,137 @@ export default function AccountsPage() {
                         <div className="flex justify-between"><span className="text-slate-700 font-semibold">New Total</span><span className="font-bold">{fmt(order.newTotal)}</span></div>
                         <div className="flex justify-between"><span className="text-slate-500">Verified Paid</span><span className="font-semibold">{fmt(order.verifiedPaid)}{order.newTotal > 0 ? ` (${((order.verifiedPaid / order.newTotal) * 100).toFixed(1)}% of new total)` : ""}</span></div>
                       </div>
-                      <table className="w-full text-xs">
-                        <thead><tr className="border-b border-slate-100 text-slate-500">
-                          <th className="pb-1 text-left font-medium">Product</th>
-                          <th className="pb-1 text-right font-medium">Qty</th>
-                          <th className="pb-1 text-right font-medium">Rate</th>
-                          <th className="pb-1 text-right font-medium">Amount</th>
-                        </tr></thead>
-                        <tbody>
-                          {order.itemChanges.map(c => (
-                            <tr key={c.itemId} className="border-b border-slate-50">
-                              <td className="py-1 font-medium text-slate-800">
-                                {c.productName}
-                                {c.itemProductionStage && c.itemProductionStage !== "NOT_PRINTED" && c.quantity > c.fromQuantity && (
-                                  <span className="block text-[10px] text-amber-700">In production — extra {c.quantity - c.fromQuantity} goes on a new line</span>
-                                )}
-                              </td>
-                              <td className="py-1 text-right text-slate-600">{c.fromQuantity === c.quantity ? c.quantity : <>{c.fromQuantity} → <b>{c.quantity}</b></>}</td>
-                              <td className="py-1 text-right text-slate-600">{c.fromUnitPrice === c.unitPrice ? c.unitPrice : <>{c.fromUnitPrice} → <b>{c.unitPrice}</b></>}</td>
-                              <td className="py-1 text-right text-slate-800">{fmt(c.fromLineTotal)} → <b>{fmt(c.lineTotal)}</b></td>
-                            </tr>
-                          ))}
-                          {order.newItems.map((n, i) => (
-                            <tr key={`new-${i}`} className="border-b border-slate-50">
-                              <td className="py-1 font-medium text-slate-800">
-                                <span className="mr-1 rounded bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-700">NEW</span>{n.productName}
-                                <span className="block text-[10px] text-slate-500">{n.productionNotes}</span>
-                              </td>
-                              <td className="py-1 text-right text-slate-600">{n.quantity}</td>
-                              <td className="py-1 text-right text-slate-600">{n.unitPrice}</td>
-                              <td className="py-1 text-right text-slate-800"><b>{fmt(n.lineTotal)}</b></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <input value={upsellOverride[order.id] ?? ""} onChange={e => setUpsellOverride(p => ({ ...p, [order.id]: e.target.value }))}
-                        placeholder="Override reason (optional — skips cost/margin checks, same as order approval)"
-                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-emerald-400" />
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => setUpsellRejectId(order.id)} disabled={upsellProcessing === order.id}
-                          className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-60">
-                          Reject
-                        </button>
-                        <button onClick={() => approveUpsellRequest(order.id)} disabled={upsellProcessing === order.id}
-                          className="inline-flex items-center gap-1 px-4 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-60 font-semibold">
-                          {upsellProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                          Approve Upsell
-                        </button>
-                      </div>
+                      {(() => {
+                        const specs = (r: UpsellItemInfo) => [r.sizeInches, r.gsm != null ? `${r.gsm} GSM` : null, r.sides ? String(r.sides).replace(/_/g, " ") : null].filter(Boolean).join(" · ");
+                        const costCells = (r: UpsellItemInfo) => (
+                          <>
+                            <td className="py-1 text-right">
+                              {r.costTotal == null ? (
+                                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">No cost</span>
+                              ) : (
+                                <>
+                                  {fmt(r.costTotal)}
+                                  {r.costPerUnit != null && <div className="text-[10px] text-slate-400">{fmt(r.costPerUnit)}/pc</div>}
+                                </>
+                              )}
+                            </td>
+                            <td className={`py-1 text-right font-semibold ${marginClass(r.marginPct)}`}>
+                              {r.marginPct == null ? "—" : `${r.marginPct.toFixed(1)}%`}
+                            </td>
+                          </>
+                        );
+                        // Same gates approveUpsell enforces (assertApprovalRules), checked on
+                        // the changed + new lines and the new total — mirrors the normal
+                        // order card's banners/button state.
+                        const hasPendingPay = order.hasPendingPayments ?? false;
+                        const advancePct = order.newTotal > 0 ? (order.verifiedPaid / order.newTotal) * 100 : 100;
+                        const belowMinAdv = advancePct < 40;
+                        const hasMissingCost = [...order.itemChanges, ...order.newItems].some(r => r.costTotal == null && !r.isFree);
+                        const hasOverride = !!upsellOverride[order.id]?.trim();
+                        const canApprove = !hasPendingPay && (isSuperAdmin || hasOverride || !hasMissingCost);
+                        const existingItems = order.existingItems ?? [];
+                        return (
+                          <>
+                            <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead><tr className="border-b border-slate-100 text-slate-500">
+                                <th className="pb-1 text-left font-medium">Product</th>
+                                <th className="pb-1 text-right font-medium">Qty</th>
+                                <th className="pb-1 text-right font-medium">Rate</th>
+                                <th className="pb-1 text-right font-medium">Cost</th>
+                                <th className="pb-1 text-right font-medium">Margin</th>
+                                <th className="pb-1 text-right font-medium">Amount</th>
+                              </tr></thead>
+                              <tbody>
+                                {existingItems.map(e => (
+                                  <tr key={e.itemId} className="border-b border-slate-50 text-slate-500">
+                                    <td className="py-1">
+                                      <span className="mr-1 rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-500">EXISTING</span>{e.productName}
+                                      {specs(e) && <span className="block text-[10px] text-slate-400">{specs(e)}</span>}
+                                    </td>
+                                    <td className="py-1 text-right">{e.quantity}</td>
+                                    <td className="py-1 text-right">{e.unitPrice}</td>
+                                    {costCells(e)}
+                                    <td className="py-1 text-right">{fmt(e.lineTotal)}</td>
+                                  </tr>
+                                ))}
+                                {order.itemChanges.map(c => (
+                                  <tr key={c.itemId} className="border-b border-slate-50">
+                                    <td className="py-1 font-medium text-slate-800">
+                                      <span className="mr-1 rounded bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">CHANGED</span>{c.productName}
+                                      {specs(c) && <span className="block text-[10px] font-normal text-slate-500">{specs(c)}</span>}
+                                      {c.itemProductionStage && c.itemProductionStage !== "NOT_PRINTED" && c.quantity > c.fromQuantity && (
+                                        <span className="block text-[10px] text-amber-700">In production — extra {c.quantity - c.fromQuantity} goes on a new line</span>
+                                      )}
+                                    </td>
+                                    <td className="py-1 text-right text-slate-600">{c.fromQuantity === c.quantity ? c.quantity : <>{c.fromQuantity} → <b>{c.quantity}</b></>}</td>
+                                    <td className="py-1 text-right text-slate-600">{c.fromUnitPrice === c.unitPrice ? c.unitPrice : <>{c.fromUnitPrice} → <b>{c.unitPrice}</b></>}</td>
+                                    {costCells(c)}
+                                    <td className="py-1 text-right text-slate-800">{fmt(c.fromLineTotal)} → <b>{fmt(c.lineTotal)}</b></td>
+                                  </tr>
+                                ))}
+                                {order.newItems.map((n, i) => (
+                                  <tr key={`new-${i}`} className="border-b border-slate-50">
+                                    <td className="py-1 font-medium text-slate-800">
+                                      <span className="mr-1 rounded bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-700">NEW</span>{n.productName}
+                                      <span className="block text-[10px] text-slate-500">{n.productionNotes}</span>
+                                    </td>
+                                    <td className="py-1 text-right text-slate-600">{n.quantity}</td>
+                                    <td className="py-1 text-right text-slate-600">{n.unitPrice}</td>
+                                    {costCells(n)}
+                                    <td className="py-1 text-right text-slate-800"><b>{fmt(n.lineTotal)}</b></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            </div>
+                            {hasPendingPay && (
+                              <div className="flex items-center gap-2 rounded-lg bg-orange-50 border border-orange-300 px-3 py-2 text-xs text-orange-800">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                <span><strong>Unverified payment(s)</strong> — verify all receipts in <strong>Receipts Pending</strong> tab before approving this upsell.</span>
+                              </div>
+                            )}
+                            {belowMinAdv && !hasPendingPay && (
+                              <div className="flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-300 px-3 py-2 text-xs text-yellow-800">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                <span><strong>{advancePct.toFixed(1)}% advance of the new total</strong> — minimum 40% required. Only super-admin can approve below this limit.</span>
+                              </div>
+                            )}
+                            {hasMissingCost && (
+                              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                <span>
+                                  Cost data missing for some upsold products.{" "}
+                                  <a href="/cost-table" className="underline font-semibold hover:text-red-900">Add cost slabs in Cost Table</a>{" "}
+                                  {isSuperAdmin ? "— you can still approve as super-admin." : "before approving, or enter an override reason."}
+                                </span>
+                              </div>
+                            )}
+                            <input value={upsellOverride[order.id] ?? ""} onChange={e => setUpsellOverride(p => ({ ...p, [order.id]: e.target.value }))}
+                              placeholder="Override reason (optional — skips cost/margin checks, same as order approval)"
+                              className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-emerald-400" />
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => setUpsellRejectId(order.id)} disabled={upsellProcessing === order.id}
+                                className="px-3 py-1.5 text-xs border border-red-200 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-60">
+                                Reject
+                              </button>
+                              <button onClick={() => canApprove && approveUpsellRequest(order.id)} disabled={upsellProcessing === order.id || !canApprove}
+                                title={
+                                  hasPendingPay ? "Verify all receipts first" :
+                                  (hasMissingCost && !isSuperAdmin && !hasOverride) ? "Add cost slabs for all upsold products first, or enter an override reason" :
+                                  belowMinAdv ? "Below 40% advance — only super-admin can approve" :
+                                  undefined
+                                }
+                                className={`inline-flex items-center gap-1 px-4 py-2 text-xs rounded-lg font-semibold disabled:opacity-60 ${
+                                  !canApprove ? "bg-gray-200 text-gray-400 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"
+                                }`}>
+                                {upsellProcessing === order.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                Approve Upsell
+                              </button>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

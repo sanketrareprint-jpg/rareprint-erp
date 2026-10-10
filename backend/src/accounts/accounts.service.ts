@@ -306,6 +306,40 @@ export class AccountsService {
     await this.prisma.order.update({ where: { id: orderId }, data: { paymentStatus } });
   }
 
+  // Cost/margin shown on the approval screens (normal orders and upsell
+  // requests). `slabs` are the product's cost slabs; the matching slab is the
+  // highest minQuantity that covers `quantity`. All null when no slab matches.
+  private itemCostMargin(
+    slabs: { minQuantity: number; maxQuantity: number | null; unitPrice: Prisma.Decimal | number }[],
+    quantity: number,
+    unitPrice: number,
+    lineTotal: number,
+  ) {
+    const matchingSlab = slabs
+      .filter((slab) =>
+        slab.minQuantity <= quantity &&
+        (slab.maxQuantity == null || slab.maxQuantity >= quantity),
+      )
+      .sort((a, b) => b.minQuantity - a.minQuantity)[0];
+    const rawSlabCost = matchingSlab ? Number(matchingSlab.unitPrice) : null;
+    const costPerUnit = rawSlabCost == null
+      ? null
+      : rawSlabCost > unitPrice
+        ? rawSlabCost / matchingSlab.minQuantity
+        : rawSlabCost;
+    const costTotal = costPerUnit == null ? null : costPerUnit * quantity;
+    const marginTotal = costTotal == null ? null : lineTotal - costTotal;
+    const marginPct = marginTotal == null || lineTotal <= 0
+      ? null
+      : (marginTotal / lineTotal) * 100;
+    return {
+      costPerUnit: costPerUnit == null ? null : Number(costPerUnit.toFixed(4)),
+      costTotal: costTotal == null ? null : Number(costTotal.toFixed(2)),
+      marginTotal: marginTotal == null ? null : Number(marginTotal.toFixed(2)),
+      marginPct: marginPct == null ? null : Number(marginPct.toFixed(2)),
+    };
+  }
+
   async getPendingOrders() {
     const orders = await this.prisma.order.findMany({
       where: { status: OrderStatus.PENDING_APPROVAL },
@@ -358,25 +392,11 @@ export class AccountsService {
         ].filter(Boolean).join(' | ') || null,
         products: order.items.map((i) => `${i.product.name} (×${i.quantity})`).join(', '),
         items: order.items.map((i) => {
-          const matchingSlab = (slabsByProductId.get(i.productId) ?? [])
-            .filter((slab) =>
-              slab.minQuantity <= i.quantity &&
-              (slab.maxQuantity == null || slab.maxQuantity >= i.quantity),
-            )
-            .sort((a, b) => b.minQuantity - a.minQuantity)[0];
           const unitPrice = Number(i.unitPrice);
           const lineTotal = Number(i.lineTotal);
-          const rawSlabCost = matchingSlab ? Number(matchingSlab.unitPrice) : null;
-          const costPerUnit = rawSlabCost == null
-            ? null
-            : rawSlabCost > unitPrice
-              ? rawSlabCost / matchingSlab.minQuantity
-              : rawSlabCost;
-          const costTotal = costPerUnit == null ? null : costPerUnit * i.quantity;
-          const marginTotal = costTotal == null ? null : lineTotal - costTotal;
-          const marginPct = marginTotal == null || lineTotal <= 0
-            ? null
-            : (marginTotal / lineTotal) * 100;
+          const { costPerUnit, costTotal, marginTotal, marginPct } = this.itemCostMargin(
+            slabsByProductId.get(i.productId) ?? [], i.quantity, unitPrice, lineTotal,
+          );
 
           return {
             productName:     i.product.name,
@@ -390,10 +410,10 @@ export class AccountsService {
             lineTotal,
             productionNotes: i.productionNotes,
             artworkNotes:    i.artworkNotes,
-            costPerUnit: costPerUnit == null ? null : Number(costPerUnit.toFixed(4)),
-            costTotal: costTotal == null ? null : Number(costTotal.toFixed(2)),
-            marginTotal: marginTotal == null ? null : Number(marginTotal.toFixed(2)),
-            marginPct: marginPct == null ? null : Number(marginPct.toFixed(2)),
+            costPerUnit,
+            costTotal,
+            marginTotal,
+            marginPct,
             offerCode: (i as any).offerCode ? {
               code: (i as any).offerCode.code,
               offerType: (i as any).offerCode.offerType,
@@ -1129,10 +1149,33 @@ export class AccountsService {
       },
       orderBy: ({ upsellRequestedAt: 'desc' } as any),
     });
+
+    // Cost slabs + product details for cost/margin columns, covering the
+    // order's current items and the upsell's new products.
+    const newProductIds = orders.flatMap((order) =>
+      (((order as any).pendingUpsell as PendingUpsell | null)?.newItems ?? []).map((n) => n.productId));
+    const productIds = Array.from(new Set([
+      ...orders.flatMap((order) => order.items.map((item) => item.productId)),
+      ...newProductIds,
+    ]));
+    const [slabs, newProducts] = await Promise.all([
+      this.prisma.productCostSlab.findMany({ where: { productId: { in: productIds } } }),
+      this.prisma.product.findMany({ where: { id: { in: Array.from(new Set(newProductIds)) } } }),
+    ]);
+    const slabsFor = (productId: string) => slabs.filter((s) => s.productId === productId);
+    const newProductById = new Map(newProducts.map((p) => [p.id, p]));
+    const productInfo = (p?: { sku: string; sizeInches: string | null; gsm: number | null; sides: string | null } | null) => ({
+      sku: p?.sku ?? null,
+      sizeInches: p?.sizeInches ?? null,
+      gsm: p?.gsm ?? null,
+      sides: p?.sides ?? null,
+    });
+
     return orders.map((order) => {
       const pending = (order as any).pendingUpsell as PendingUpsell | null;
       const itemChanges = pending?.itemChanges ?? [];
       const newItems = pending?.newItems ?? [];
+      const changedItemIds = new Set(itemChanges.map((c) => c.itemId));
       const verifiedPaid = order.payments
         .filter((p) => p.verificationStatus === 'VERIFIED')
         .reduce((s, p) => s + Number(p.amount), 0);
@@ -1152,11 +1195,38 @@ export class AccountsService {
         addedAmount,
         newTotal: this.money(Number(order.grandTotal) + addedAmount),
         verifiedPaid: this.money(verifiedPaid),
+        hasPendingPayments: order.payments.some((p) => p.verificationStatus === 'PENDING_VERIFICATION'),
+        // Current items the upsell leaves unchanged, so Accounts sees the
+        // whole order, not just the delta.
+        existingItems: order.items
+          .filter((i) => !i.cancelledAt && !changedItemIds.has(i.id))
+          .map((i) => ({
+            itemId: i.id,
+            productName: i.product.name,
+            ...productInfo(i.product),
+            quantity: i.quantity,
+            unitPrice: Number(i.unitPrice),
+            lineTotal: Number(i.lineTotal),
+            isFree: !!i.offerCodeId,
+            ...this.itemCostMargin(slabsFor(i.productId), i.quantity, Number(i.unitPrice), Number(i.lineTotal)),
+          })),
+        // Cost/margin at the post-upsell qty/rate — what approveUpsell checks.
         itemChanges: itemChanges.map((c) => {
           const item = order.items.find((i) => i.id === c.itemId);
-          return { ...c, itemProductionStage: item?.itemProductionStage ?? null };
+          return {
+            ...c,
+            itemProductionStage: item?.itemProductionStage ?? null,
+            ...productInfo(item?.product),
+            isFree: !!item?.offerCodeId,
+            ...this.itemCostMargin(item ? slabsFor(item.productId) : [], c.quantity, c.unitPrice, c.lineTotal),
+          };
         }),
-        newItems,
+        newItems: newItems.map((n) => ({
+          ...n,
+          ...productInfo(newProductById.get(n.productId)),
+          isFree: false,
+          ...this.itemCostMargin(slabsFor(n.productId), n.quantity, n.unitPrice, n.lineTotal),
+        })),
       };
     });
   }
