@@ -322,6 +322,20 @@ describe('dialer rules — reply details: reason, products, end call (RULE 11)',
     ]);
   });
 
+  it('Interested / Rate problem: quantity and rate are optional', () => {
+    const r = parseDialerResult({ ...base, outcome: 'INTERESTED', products: [{ productId: 'p1' }, { productId: 'p2', quantity: '', rate: '' }] }, now);
+    expect(r.ok && r.value.products).toEqual([
+      { productId: 'p1', quantity: null, rate: null },
+      { productId: 'p2', quantity: null, rate: null },
+    ]);
+    const rate = parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'RATE', products: [{ productId: 'p1', rate: '2' }] }, now);
+    expect(rate.ok && rate.value.products).toEqual([{ productId: 'p1', quantity: null, rate: 2 }]);
+  });
+
+  it('Quantity problem still needs the quantity', () => {
+    expect(parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'QUANTITY', products: [{ productId: 'p1' }] }, now).ok).toBe(false);
+  });
+
   it('Rate / Quantity problem need a product; Quantity drops the rate', () => {
     expect(parseDialerResult({ ...base, outcome: 'NOT_INTERESTED', notInterestedReason: 'RATE' }, now))
       .toEqual({ ok: false, error: 'Choose the product (and quantity) the customer asked about' });
@@ -376,6 +390,7 @@ describe('dialer rules — reply details: reason, products, end call (RULE 11)',
   it('describes products for the activity note', () => {
     expect(describeReplyProducts([{ productId: 'p1', productName: 'Envelope 10x4', quantity: 5000, rate: 1.25 }, { productId: 'p2', productName: 'Bill book', quantity: 20, rate: null }]))
       .toBe('Envelope 10x4 × 5,000 @ ₹1.25, Bill book × 20');
+    expect(describeReplyProducts([{ productId: 'p1', productName: 'File', quantity: null, rate: null }])).toBe('File');
   });
 });
 

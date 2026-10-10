@@ -150,16 +150,17 @@ export const MAX_REPLY_PRODUCTS = 20;
 /**
  * A product the customer talked about. quantity = units they need;
  * rate = ₹ per unit typed by the agent (Interested: the rate discussed;
- * Rate problem: the rate the customer is asking for), null when not given.
+ * Rate problem: the rate the customer is asking for). Both null when not
+ * given — only "Not interested / quantity" requires the quantity.
  * productName is filled in by the service from the Product table.
  */
-export interface ReplyProduct { productId: string; quantity: number; rate: number | null; productName?: string; }
+export interface ReplyProduct { productId: string; quantity: number | null; rate: number | null; productName?: string; }
 
 /**
  * Which replies carry products:
- *   INTERESTED                  — optional, quantity + rate
- *   NOT_INTERESTED / RATE       — at least one, quantity + asking rate
- *   NOT_INTERESTED / QUANTITY   — at least one, quantity only
+ *   INTERESTED                  — optional, quantity + rate (both optional)
+ *   NOT_INTERESTED / RATE       — at least one, quantity + asking rate (both optional)
+ *   NOT_INTERESTED / QUANTITY   — at least one, quantity (required) only
  *   anything else               — none
  */
 export function replyProductRule(outcome: DialerOutcome, reason: NotInterestedReason | null): 'none' | 'optional' | 'required' {
@@ -168,7 +169,7 @@ export function replyProductRule(outcome: DialerOutcome, reason: NotInterestedRe
   return 'none';
 }
 
-function parseReplyProducts(raw: unknown, allowRate: boolean): { ok: true; value: ReplyProduct[] } | { ok: false; error: string } {
+function parseReplyProducts(raw: unknown, allowRate: boolean, requireQuantity: boolean): { ok: true; value: ReplyProduct[] } | { ok: false; error: string } {
   if (raw == null) return { ok: true, value: [] };
   if (!Array.isArray(raw)) return { ok: false, error: 'products must be a list' };
   if (raw.length > MAX_REPLY_PRODUCTS) return { ok: false, error: `At most ${MAX_REPLY_PRODUCTS} products` };
@@ -176,8 +177,11 @@ function parseReplyProducts(raw: unknown, allowRate: boolean): { ok: true; value
   for (const [i, p] of raw.entries()) {
     const productId = typeof p?.productId === 'string' ? p.productId.trim() : '';
     if (!productId) return { ok: false, error: `Product ${i + 1}: choose a product` };
-    const quantity = Number(p?.quantity);
-    if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, error: `Product ${i + 1}: quantity must be a whole number above 0` };
+    let quantity: number | null = null;
+    if (requireQuantity || (p?.quantity != null && p.quantity !== '')) {
+      quantity = Number(p?.quantity);
+      if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, error: `Product ${i + 1}: quantity must be a whole number above 0` };
+    }
     let rate: number | null = null;
     if (allowRate && p?.rate != null && p.rate !== '') {
       rate = Number(p.rate);
@@ -247,7 +251,7 @@ function parseOutcomeFields(
   }
 
   const productRule = replyProductRule(outcome, notInterestedReason);
-  const parsedProducts = parseReplyProducts(body?.products, notInterestedReason !== 'QUANTITY');
+  const parsedProducts = parseReplyProducts(body?.products, notInterestedReason !== 'QUANTITY', notInterestedReason === 'QUANTITY');
   if ('error' in parsedProducts) return parsedProducts;
   const products = parsedProducts.value;
   if (productRule === 'none' && products.length) return { ok: false, error: 'Products can only be given for Interested, or Not interested because of rate / quantity' };
@@ -259,7 +263,7 @@ function parseOutcomeFields(
 /** "Envelope 10x4 × 5,000 @ ₹1.2" lines for activity notes. */
 export function describeReplyProducts(products: ReplyProduct[]): string {
   return products
-    .map((p) => `${p.productName ?? p.productId} × ${p.quantity.toLocaleString('en-IN')}${p.rate != null ? ` @ ₹${p.rate}` : ''}`)
+    .map((p) => `${p.productName ?? p.productId}${p.quantity != null ? ` × ${p.quantity.toLocaleString('en-IN')}` : ''}${p.rate != null ? ` @ ₹${p.rate}` : ''}`)
     .join(', ');
 }
 
