@@ -33,14 +33,14 @@ type OutcomeValues = {
   outcome: Outcome; note: string; callbackAtIso: string | null;
   // From the PC popup only: why not interested + products discussed (sent as-is).
   notInterestedReason?: string | null;
-  products?: Array<{ productId: string; quantity: number; rate: number | null }>;
+  products?: Array<{ productId: string; quantity: number | null; rate: number | null }>;
 };
 /** GET /dialer/desk-response */
 interface DeskReply {
   response: {
     outcome: Outcome; note: string | null; callbackAt: string | null; submittedAt: string;
     notInterestedReason: string | null;
-    products: Array<{ productId: string; quantity: number; rate: number | null }>;
+    products: Array<{ productId: string; quantity: number | null; rate: number | null }>;
     then: "NEXT" | "PAUSE" | "STOP";
   } | null;
   endCallRequested: boolean;

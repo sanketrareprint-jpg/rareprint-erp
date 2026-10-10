@@ -99,7 +99,7 @@ export const notInterestedReasonLabel = (r: string | null | undefined) =>
 /** A product row in the reply form. quantity / rate are kept as typed text until sent. */
 export interface ReplyProductDraft { productId: string; quantity: string; rate: string; }
 /** As saved on a call (productName filled in by the backend). */
-export interface ReplyProduct { productId: string; productName?: string; quantity: number; rate: number | null; }
+export interface ReplyProduct { productId: string; productName?: string; quantity: number | null; rate: number | null; }
 
 /** Which replies carry products — replyProductRule in dialer.rules.ts. */
 export function replyProductRule(outcome: DialerOutcome | null, reason: NotInterestedReason | ""): "none" | "optional" | "required" {
@@ -116,17 +116,22 @@ export function buildReplyDetails(
   outcome: DialerOutcome | null,
   reason: NotInterestedReason | "",
   rows: ReplyProductDraft[],
-): { ok: true; value: { notInterestedReason?: NotInterestedReason; products?: Array<{ productId: string; quantity: number; rate: number | null }> } } | { ok: false; error: string } {
+): { ok: true; value: { notInterestedReason?: NotInterestedReason; products?: Array<{ productId: string; quantity: number | null; rate: number | null }> } } | { ok: false; error: string } {
   if (outcome === "NOT_INTERESTED" && !reason) return { ok: false, error: "Choose why the customer is not interested." };
   const rule = replyProductRule(outcome, reason);
   if (rule === "none") return { ok: true, value: outcome === "NOT_INTERESTED" ? { notInterestedReason: reason as NotInterestedReason } : {} };
   const withRate = reason !== "QUANTITY";
   const filled = rows.filter((r) => r.productId || r.quantity.trim() || r.rate.trim());
-  const products: Array<{ productId: string; quantity: number; rate: number | null }> = [];
+  // Quantity is only required for "Not interested — quantity"; otherwise optional, like rate.
+  const requireQuantity = reason === "QUANTITY";
+  const products: Array<{ productId: string; quantity: number | null; rate: number | null }> = [];
   for (const [i, r] of filled.entries()) {
     if (!r.productId) return { ok: false, error: `Product ${i + 1}: choose the product.` };
-    const quantity = Number(r.quantity);
-    if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, error: `Product ${i + 1}: enter the quantity (whole number).` };
+    let quantity: number | null = null;
+    if (requireQuantity || r.quantity.trim()) {
+      quantity = Number(r.quantity);
+      if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, error: `Product ${i + 1}: enter the quantity (whole number).` };
+    }
     let rate: number | null = null;
     if (withRate && r.rate.trim()) {
       rate = Number(r.rate);
@@ -134,7 +139,7 @@ export function buildReplyDetails(
     }
     products.push({ productId: r.productId, quantity, rate });
   }
-  if (rule === "required" && !products.length) return { ok: false, error: "Choose the product and quantity the customer asked about." };
+  if (rule === "required" && !products.length) return { ok: false, error: requireQuantity ? "Choose the product and quantity the customer asked about." : "Choose the product the customer asked about." };
   return {
     ok: true,
     value: {
@@ -150,11 +155,11 @@ export function buildReplyDetails(
  * here — the quote / order is where amounts are calculated.
  */
 export function productsWhatsAppMessage(
-  products: Array<{ name: string; quantity: number; rate: number | null }>,
+  products: Array<{ name: string; quantity: number | null; rate: number | null }>,
   vars: { name: string | null; agent: string; agentPhone: string },
 ): string {
   const lines = products.map((p) =>
-    `• ${p.name} — ${p.quantity.toLocaleString("en-IN")} pcs${p.rate != null ? ` @ ₹${p.rate}/pc` : ""}`);
+    `• ${p.name}${p.quantity != null ? ` — ${p.quantity.toLocaleString("en-IN")} pcs` : ""}${p.rate != null ? ` @ ₹${p.rate}/pc` : ""}`);
   return [
     `Dear ${vars.name?.trim() || "Sir/Madam"},`,
     "",
@@ -170,6 +175,6 @@ export function productsWhatsAppMessage(
 /** "Envelope × 5,000 @ ₹1.25" for call history. */
 export function describeReplyProducts(products: ReplyProduct[] | null | undefined): string {
   return (products ?? [])
-    .map((p) => `${p.productName ?? "Product"} × ${p.quantity.toLocaleString("en-IN")}${p.rate != null ? ` @ ₹${p.rate}` : ""}`)
+    .map((p) => `${p.productName ?? "Product"}${p.quantity != null ? ` × ${p.quantity.toLocaleString("en-IN")}` : ""}${p.rate != null ? ` @ ₹${p.rate}` : ""}`)
     .join(", ");
 }

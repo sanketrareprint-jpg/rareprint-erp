@@ -112,6 +112,8 @@ export function DialerDeskPopup() {
   const [rateListId, setRateListId] = useState("");
   const [editing, setEditing] = useState(false); // "Change answer" on an already-saved response
   const [copied, setCopied] = useState(false);
+  // Product search box: which row's list is open and what's typed in it.
+  const [picker, setPicker] = useState<{ row: number; query: string } | null>(null);
   // Which call the form belongs to — a new number (or a new lock) resets it.
   const callKeyRef = useRef("");
   const failsRef = useRef(0);
@@ -127,6 +129,7 @@ export function DialerDeskPopup() {
     setEditing(false);
     setCopied(false);
     setEnding(false);
+    setPicker(null);
   };
 
   const poll = useCallback(async () => {
@@ -207,7 +210,7 @@ export function DialerDeskPopup() {
     setCallbackAt(r.callbackAt ? toLocalInput(r.callbackAt) : "");
     setReason((r.notInterestedReason as NotInterestedReason) ?? "");
     setRows(r.products?.length
-      ? r.products.map((p) => ({ productId: p.productId, quantity: String(p.quantity), rate: p.rate == null ? "" : String(p.rate) }))
+      ? r.products.map((p) => ({ productId: p.productId, quantity: p.quantity == null ? "" : String(p.quantity), rate: p.rate == null ? "" : String(p.rate) }))
       : [emptyRow()]);
     setEditing(true);
   };
@@ -216,13 +219,24 @@ export function DialerDeskPopup() {
     setRows((list) => list.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   // Products for "Send these products on WhatsApp": what's typed in the form,
-  // or what was already saved for this call. Rows without a product or quantity are skipped.
+  // or what was already saved for this call. Rows without a product are skipped.
   const productName = (id: string) => products?.find((p) => p.id === id)?.name ?? "Product";
-  const productsToSend: Array<{ name: string; quantity: number; rate: number | null }> = submitted
+  const productLabel = (id: string) => {
+    const p = products?.find((x) => x.id === id);
+    return p ? `${p.name}${p.sku ? ` (${p.sku})` : ""}` : "";
+  };
+  const pickerQuery = picker?.query.trim().toLowerCase() ?? "";
+  const matchingProducts = (products ?? []).filter((p) =>
+    !pickerQuery || p.name.toLowerCase().includes(pickerQuery) || (p.sku ?? "").toLowerCase().includes(pickerQuery));
+  const productsToSend: Array<{ name: string; quantity: number | null; rate: number | null }> = submitted
     ? (submitted.outcome === "INTERESTED" ? submitted.products ?? [] : []).map((p) => ({ name: p.productName ?? productName(p.productId), quantity: p.quantity, rate: p.rate }))
     : rows
-        .filter((r) => r.productId && Number(r.quantity) > 0)
-        .map((r) => ({ name: productName(r.productId), quantity: Number(r.quantity), rate: r.rate.trim() && Number.isFinite(Number(r.rate)) ? Number(r.rate) : null }));
+        .filter((r) => r.productId)
+        .map((r) => ({
+          name: productName(r.productId),
+          quantity: Number(r.quantity) > 0 ? Number(r.quantity) : null,
+          rate: r.rate.trim() && Number.isFinite(Number(r.rate)) ? Number(r.rate) : null,
+        }));
   const sendProducts = (where: "web" | "app") => {
     if (!productsToSend.length) return;
     const text = productsWhatsAppMessage(productsToSend, { name: item.name, agent: item.agent.name, agentPhone: item.agent.phone });
@@ -382,11 +396,28 @@ export function DialerDeskPopup() {
                   </div>
                   {rows.map((r, i) => (
                     <div key={i} className={`grid items-center gap-2 ${withRate ? "grid-cols-[minmax(0,1fr)_96px_96px_32px]" : "grid-cols-[minmax(0,1fr)_120px_32px]"}`}>
-                      <select value={r.productId} onChange={(e) => updateRow(i, { productId: e.target.value })}
-                        className="min-w-0 rounded-lg border bg-white px-2 py-2">
-                        <option value="">{products ? "Choose product…" : "Loading products…"}</option>
-                        {(products ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ""}</option>)}
-                      </select>
+                      <div className="relative min-w-0">
+                        <input type="text"
+                          value={picker?.row === i ? picker.query : r.productId ? productLabel(r.productId) : ""}
+                          onChange={(e) => setPicker({ row: i, query: e.target.value })}
+                          onFocus={(e) => { e.target.select(); setPicker({ row: i, query: "" }); }}
+                          onBlur={() => setTimeout(() => setPicker((p) => (p?.row === i ? null : p)), 200)}
+                          placeholder={products ? "Search product…" : "Loading products…"}
+                          className="w-full rounded-lg border bg-white px-2 py-2" />
+                        {picker?.row === i && products && (
+                          <div className="absolute left-0 top-full z-10 mt-1 max-h-60 w-full min-w-[240px] overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-lg">
+                            {matchingProducts.length === 0 ? (
+                              <div className="px-3 py-2 text-slate-500">No product matches “{picker.query}”</div>
+                            ) : matchingProducts.map((p) => (
+                              <div key={p.id}
+                                onMouseDown={() => { updateRow(i, { productId: p.id }); setPicker(null); }}
+                                className={`cursor-pointer border-b border-slate-100 px-3 py-1.5 hover:bg-sky-50 ${p.id === r.productId ? "bg-sky-50 font-semibold" : ""}`}>
+                                {p.name}{p.sku ? <span className="text-slate-500"> ({p.sku})</span> : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <input value={r.quantity} onChange={(e) => updateRow(i, { quantity: e.target.value.replace(/[^\d]/g, "") })}
                         inputMode="numeric" placeholder="Qty" className="min-w-0 rounded-lg border px-2 py-2" />
                       {withRate && (
@@ -440,7 +471,7 @@ export function DialerDeskPopup() {
                   Desktop app
                 </button>
               </div>
-              {!productsToSend.length && <p className="text-xs text-emerald-800">Add the products (and quantity) above to send them.</p>}
+              {!productsToSend.length && <p className="text-xs text-emerald-800">Add the products above to send them.</p>}
               {/* 2. A ready-made rate list (Dialer settings) */}
               <div className="pt-1 text-xs font-semibold text-emerald-800">Or send a rate list</div>
               {settings && settings.rateLists.length === 0 && (
