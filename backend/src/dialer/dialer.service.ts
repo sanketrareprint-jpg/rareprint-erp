@@ -4,7 +4,8 @@
 //
 // GET /dialer/next picks the logged-in agent's next number, in this order:
 //   1. FOLLOW_UP_DUE  — Lead / Not Contacted follow-ups scheduled for today (India time) and due now
-//   2. FRESH_LEAD     — the agent's NEW leads that have never been called
+//   2. FRESH_LEAD     — the agent's NEW leads that have never been called,
+//                       newest day's leads first (optionally only one day's)
 //   3. NOT_CONTACTED  — the agent's Not Contacted contacts (same rule as Call
 //                       Compliance: no call in the agent's imported call logs)
 //                       that have no Lead yet and haven't been dialed
@@ -51,6 +52,9 @@ import {
   parseDialerList,
   parseDialerSettings,
   formatDuration,
+  IMPORT_DATE_LISTS,
+  IST_OFFSET_MINUTES,
+  parseImportedOn,
   isConclusiveOutcome,
   istDayStart,
   nextStatusForOutcome,
@@ -110,10 +114,16 @@ export class DialerService {
   // GET /dialer/next
   // ───────────────────────────────────────────────────────────────────────
 
-  async getNext(user: DialerUser, skipPhones: string[] = [], asAgentId?: string, listRaw?: string) {
+  async getNext(user: DialerUser, skipPhones: string[] = [], asAgentId?: string, listRaw?: string, importedOnRaw?: string) {
     this.assertDialerRole(user);
     const list = parseDialerList(listRaw);
     if (!list) throw new BadRequestException(`list must be one of ${DIALER_LISTS.join(', ')}`);
+    const importedOn = parseImportedOn(importedOnRaw);
+    if ('error' in importedOn) throw new BadRequestException(importedOn.error);
+    const addedOn = importedOn.value;
+    if (addedOn && !IMPORT_DATE_LISTS.includes(list)) {
+      throw new BadRequestException(`A date can only be chosen for ${IMPORT_DATE_LISTS.join(' / ')}`);
+    }
     // Whose leads to dial: your own, or (admins only) a chosen seller's.
     const queueAgentId = await this.resolveQueueAgent(user, asAgentId);
     // Locks always belong to the person actually dialing, so an admin working a
@@ -128,8 +138,8 @@ export class DialerService {
 
     type Tier = (skip: number) => Promise<{ items: Candidate[]; more: boolean }>;
     const dueToday: Tier = (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip);
-    const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, false);
-    const reservedLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, true);
+    const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, false, addedOn);
+    const reservedLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, true, addedOn);
     const notContacted: Tier = (skip) => this.notContactedCandidates(queueAgentId, skip);
     const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip);
     const tiersByList: Record<DialerList, Tier[]> = {
@@ -258,18 +268,25 @@ export class DialerService {
 
   /**
    * Tier 2 (reserved = false) / tier 5 (reserved = true): the agent's NEW
-   * leads whose number has no call logged anywhere.
+   * leads whose number has no call logged anywhere. Newest day's leads
+   * first (India time), so today's import is dialed before older ones; within
+   * a day, hot / high-score first, then in import order. `addedOn` = only
+   * leads added in that window.
    * Checked per phone, not per Lead row: the same number is often on several
    * Lead rows (a CSV imported twice, or given to another seller), and a call
    * on any of them means the number is no longer fresh.
    */
-  private async freshLeadCandidates(agentId: string, skip: number, reserved: boolean) {
+  private async freshLeadCandidates(agentId: string, skip: number, reserved: boolean, addedOn: { start: Date; end: Date } | null) {
+    const dateFilter = addedOn
+      ? Prisma.sql`AND l."createdAt" >= ${addedOn.start} AND l."createdAt" < ${addedOn.end}`
+      : Prisma.empty;
     const leads = await this.prisma.$queryRaw<Array<{ id: string; phone: string }>>(Prisma.sql`
       SELECT l."id", l."phone"
       FROM "Lead" l
       WHERE l."agentId" = ${agentId}
         AND l."status"::text = ${LeadStatus.NEW}
         AND l."isReserved" = ${reserved}
+        ${dateFilter}
         AND NOT EXISTS (SELECT 1 FROM "DialerCall" dc WHERE dc."phone" = l."phone")
         AND NOT EXISTS (
           SELECT 1 FROM "LeadActivity" a
@@ -277,7 +294,8 @@ export class DialerService {
           WHERE same."phone" = l."phone"
             AND a."type"::text IN (${Prisma.join(CALL_ACTIVITY_TYPES)})
         )
-      ORDER BY l."isHot" DESC, l."score" DESC, l."createdAt" ASC
+      ORDER BY (l."createdAt" + make_interval(mins => ${IST_OFFSET_MINUTES}::int))::date DESC,
+        l."isHot" DESC, l."score" DESC, l."createdAt" ASC
       OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
     `);
     const items: Candidate[] = leads.map((l) => ({

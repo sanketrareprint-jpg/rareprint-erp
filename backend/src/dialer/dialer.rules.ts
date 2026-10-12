@@ -13,7 +13,8 @@ export const DIALER_ROLES = ['SALES_AGENT', 'ADMIN'];
 /** Longest note accepted from the outcome screen. */
 export const MAX_NOTE_LENGTH = 2000;
 
-const IST_OFFSET_MS = 330 * 60 * 1000; // India is UTC+5:30, no DST
+export const IST_OFFSET_MINUTES = 330; // India is UTC+5:30, no DST
+const IST_OFFSET_MS = IST_OFFSET_MINUTES * 60 * 1000;
 
 export const DIALER_OUTCOMES: DialerOutcome[] = [
   DialerOutcome.INTERESTED,
@@ -349,6 +350,28 @@ export type DialerList = (typeof DIALER_LISTS)[number];
 export function parseDialerList(raw: unknown): DialerList | null {
   if (raw == null || raw === '') return 'ALL';
   return (DIALER_LISTS as readonly string[]).includes(String(raw)) ? (String(raw) as DialerList) : null;
+}
+
+/** Lists that can be narrowed to leads added on one day (GET /dialer/next?importedOn=). */
+export const IMPORT_DATE_LISTS: DialerList[] = ['NEW_LEADS', 'RESERVED_LEADS'];
+
+/**
+ * `importedOn` = YYYY-MM-DD, an India-time calendar day. Returns that day as
+ * [start, end) UTC instants, so every lead added that day counts — however
+ * many CSV imports were done. Missing / blank = no date filter (null).
+ */
+export function parseImportedOn(raw: unknown): { ok: true; value: { start: Date; end: Date } | null } | { ok: false; error: string } {
+  if (raw == null || raw === '') return { ok: true, value: null };
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw));
+  const error = 'importedOn must be a date like 2026-10-12';
+  if (!m) return { ok: false, error };
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const utcMidnight = Date.UTC(y, mo - 1, d);
+  const check = new Date(utcMidnight);
+  // Rejects dates that roll over, like 2026-02-30.
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return { ok: false, error };
+  const start = new Date(utcMidnight - IST_OFFSET_MS);
+  return { ok: true, value: { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) } };
 }
 
 // ── Response typed on the PC while the phone dials (POST /dialer/desk-response) ──

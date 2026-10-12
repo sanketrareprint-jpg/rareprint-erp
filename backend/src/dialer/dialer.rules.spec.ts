@@ -28,6 +28,8 @@
  *   (through any Lead/contact row with that phone) answered it: a conclusive
  *   call after it fell due, or Not interested after it was created. Busy /
  *   not answered never skip it; a follow-up a call created survives that call.
+ * RULE 13 — New / Reserved leads can be narrowed to the leads added on one
+ *   India-time day (every import that day), and are dialed newest day first.
  *
  * If these tests fail after a code change, a dialer rule has been broken.
  */
@@ -41,6 +43,8 @@ import {
   outcomeCampaignParams,
   parseDeskResponse,
   parseDialerList,
+  parseImportedOn,
+  IMPORT_DATE_LISTS,
   parseDialerSettings,
   agentStatsSince,
   formatDuration,
@@ -246,6 +250,36 @@ describe('dialer rules — dial lists (RULE 8)', () => {
     expect(parseDialerList('RESERVED_LEADS')).toBe('RESERVED_LEADS');
     expect(parseDialerList('busy')).toBeNull();
     expect(parseDialerList('WON')).toBeNull();
+  });
+});
+
+describe('dialer rules — leads added on a day (RULE 13)', () => {
+  it('no date = no filter', () => {
+    expect(parseImportedOn(undefined)).toEqual({ ok: true, value: null });
+    expect(parseImportedOn('')).toEqual({ ok: true, value: null });
+  });
+
+  it('a date covers that whole India-time day, so every import that day counts', () => {
+    const r = parseImportedOn('2026-10-12');
+    if (!('value' in r) || !r.value) throw new Error('expected a window');
+    expect(r.value.start.toISOString()).toBe('2026-10-11T18:30:00.000Z'); // 12 Oct 00:00 IST
+    expect(r.value.end.toISOString()).toBe('2026-10-12T18:30:00.000Z'); // 13 Oct 00:00 IST
+    // 9 AM and 11:59 PM IST imports on the 12th are inside; 13th 00:00 IST is not.
+    const inside = (iso: string) => new Date(iso) >= r.value!.start && new Date(iso) < r.value!.end;
+    expect(inside('2026-10-12T03:30:00.000Z')).toBe(true);
+    expect(inside('2026-10-12T18:29:59.000Z')).toBe(true);
+    expect(inside('2026-10-12T18:30:00.000Z')).toBe(false);
+    expect(inside('2026-10-11T18:29:59.000Z')).toBe(false);
+  });
+
+  it('rejects bad dates', () => {
+    for (const bad of ['12-10-2026', '2026-02-30', '2026-13-01', 'today', '2026-10-12T00:00']) {
+      expect('error' in parseImportedOn(bad)).toBe(true);
+    }
+  });
+
+  it('only New / Reserved leads lists take a date', () => {
+    expect(IMPORT_DATE_LISTS).toEqual(['NEW_LEADS', 'RESERVED_LEADS']);
   });
 });
 

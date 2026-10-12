@@ -27,6 +27,11 @@ import {
 const SIM_KEY = "dialer_sim_id"; // same key as the Phase 1 test screen
 const QUEUE_AGENT_KEY = "dialer_queue_agent_id"; // admins: whose leads to dial ("" = my own)
 const LIST_KEY = "dialer_list"; // which list to dial (DIAL_LISTS)
+const ADDED_ON_KEY = "dialer_added_on"; // New / Reserved leads: which day's leads (AddedOn)
+const ADDED_ON_DATE_KEY = "dialer_added_on_date"; // the date picked when AddedOn is "DATE"
+const DATE_LISTS = ["NEW_LEADS", "RESERVED_LEADS"]; // lists a date can be chosen for (IMPORT_DATE_LISTS in dialer.rules.ts)
+type AddedOn = "ANY" | "TODAY" | "YESTERDAY" | "DATE";
+const ADDED_ON_LABELS: Record<AddedOn, string> = { ANY: "Any date", TODAY: "Today", YESTERDAY: "Yesterday", DATE: "Pick a date" };
 const DESK_POLL_MS = 2000; // outcome screen: how often to check for a response typed on the PC
 
 type OutcomeValues = {
@@ -70,6 +75,10 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const mmss = (sec: number) => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
 /** ISO instant → the phone's local "YYYY-MM-DDTHH:mm" for a datetime-local input. */
 const toLocalInput = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+/** The phone's local calendar day, `daysAgo` days back, as YYYY-MM-DD. */
+const localDay = (daysAgo: number) => { const d = new Date(); d.setDate(d.getDate() - daysAgo); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+/** The `importedOn` day sent to GET /dialer/next, or "" for no date filter. */
+const addedOnDay = (mode: AddedOn, date: string) => (mode === "TODAY" ? localDay(0) : mode === "YESTERDAY" ? localDay(1) : mode === "DATE" ? date : "");
 const talkTime = (sec: number) => (sec >= 3600 ? `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m` : `${Math.floor(sec / 60)}m ${sec % 60}s`);
 
 export default function DialerPage() {
@@ -96,6 +105,10 @@ export default function DialerPage() {
   const queueAgentRef = useRef("");
   const [dialList, setDialList] = useState("ALL");
   const dialListRef = useRef("ALL");
+  const [addedOn, setAddedOn] = useState<AddedOn>("ANY");
+  const [addedOnDate, setAddedOnDate] = useState("");
+  const addedOnRef = useRef<AddedOn>("ANY");
+  const addedOnDateRef = useRef("");
   const [fromPc, setFromPc] = useState(false); // outcome being saved came from the PC popup
   const [askList, setAskList] = useState(false); // "Which list to call?" shown before every Start
 
@@ -171,6 +184,8 @@ export default function DialerPage() {
     const params = new URLSearchParams();
     if (queueAgentRef.current) params.set("asAgentId", queueAgentRef.current);
     if (dialListRef.current !== "ALL") params.set("list", dialListRef.current);
+    const day = DATE_LISTS.includes(dialListRef.current) ? addedOnDay(addedOnRef.current, addedOnDateRef.current) : "";
+    if (day) params.set("importedOn", day);
     const qs = params.toString() ? `?${params.toString()}` : "";
     const res = await apiFetch<{ item: QueueItem | null }>(`/dialer/next${qs}`, {}, (msg) => setError(msg));
     if (phaseRef.current !== "loading") return; // agent pressed Stop meanwhile
@@ -192,6 +207,12 @@ export default function DialerPage() {
     try {
       const savedList = localStorage.getItem(LIST_KEY) ?? "ALL";
       if (DIAL_LISTS.some((l) => l.value === savedList)) { dialListRef.current = savedList; setDialList(savedList); }
+    } catch { /* ignore */ }
+    try {
+      const savedMode = localStorage.getItem(ADDED_ON_KEY) ?? "ANY";
+      if (savedMode in ADDED_ON_LABELS) { addedOnRef.current = savedMode as AddedOn; setAddedOn(savedMode as AddedOn); }
+      const savedDate = localStorage.getItem(ADDED_ON_DATE_KEY) ?? "";
+      addedOnDateRef.current = savedDate; setAddedOnDate(savedDate);
     } catch { /* ignore */ }
   }, []);
 
@@ -308,7 +329,19 @@ export default function DialerPage() {
     try { localStorage.setItem(LIST_KEY, value); } catch { /* ignore */ }
   };
 
+  const chooseAddedOn = (mode: AddedOn, date: string) => {
+    addedOnRef.current = mode;
+    addedOnDateRef.current = date;
+    setAddedOn(mode);
+    setAddedOnDate(date);
+    try { localStorage.setItem(ADDED_ON_KEY, mode); localStorage.setItem(ADDED_ON_DATE_KEY, date); } catch { /* ignore */ }
+  };
+
   const start = async () => {
+    if (DATE_LISTS.includes(dialListRef.current) && addedOnRef.current === "DATE" && !addedOnDateRef.current) {
+      setError("Pick the date the leads were added.");
+      return;
+    }
     setAskList(false);
     setError("");
     if (!perms?.allGranted) { setError("Allow all the permissions below first."); return; }
@@ -503,6 +536,9 @@ export default function DialerPage() {
           <section className="rounded-lg border p-3 text-sm">
             <span className="text-slate-500">Calling list: </span>
             <span className="font-semibold">{DIAL_LISTS.find((l) => l.value === dialList)?.label ?? dialList}</span>
+            {DATE_LISTS.includes(dialList) && addedOn !== "ANY" && (
+              <span className="font-semibold"> · added {addedOn === "DATE" ? addedOnDate : ADDED_ON_LABELS[addedOn].toLowerCase()}</span>
+            )}
           </section>
         )}
 
@@ -575,7 +611,9 @@ export default function DialerPage() {
             {phase === "onCall" && <>On call <b className="font-mono">{mmss(elapsed)}</b></>}
             {(phase === "outcome" || phase === "saving") && "Call ended — save the outcome (here or on your PC)."}
             {phase === "paused" && "Paused."}
-            {phase === "empty" && "No more leads to call right now."}
+            {phase === "empty" && (DATE_LISTS.includes(dialList) && addedOn !== "ANY"
+              ? "No more uncalled leads added on that day."
+              : "No more leads to call right now.")}
             {phase === "stopped" && "Dialer stopped."}
             {afterCall !== "continue" && (phase === "dialing" || phase === "onCall") && (
               <span className="block text-xs text-amber-700">Will {afterCall} after this call.</span>
@@ -606,6 +644,21 @@ export default function DialerPage() {
               className="w-full rounded-lg border px-3 py-3 bg-white text-sm">
               {DIAL_LISTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
             </select>
+            {DATE_LISTS.includes(dialList) && (
+              <label className="block text-sm">
+                <span className="font-semibold text-slate-700">Leads added on</span>
+                <select value={addedOn} onChange={(e) => { chooseAddedOn(e.target.value as AddedOn, addedOnDate); setError(""); }}
+                  className="mt-1 w-full rounded-lg border px-3 py-3 bg-white text-sm">
+                  {(Object.keys(ADDED_ON_LABELS) as AddedOn[]).map((k) => <option key={k} value={k}>{ADDED_ON_LABELS[k]}</option>)}
+                </select>
+                {addedOn === "DATE" && (
+                  <input type="date" value={addedOnDate} max={localDay(0)} onChange={(e) => { chooseAddedOn("DATE", e.target.value); setError(""); }}
+                    className="mt-2 w-full rounded-lg border px-3 py-2" />
+                )}
+                <span className="block text-xs text-slate-500 mt-1">Includes every import done that day.</span>
+              </label>
+            )}
+            {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 break-words">{error}</div>}
             <div className="flex gap-2">
               <button type="button" onClick={() => setAskList(false)}
                 className="flex-1 rounded-lg border border-slate-300 px-3 py-3 text-sm font-medium text-slate-700">

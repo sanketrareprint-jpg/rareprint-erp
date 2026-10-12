@@ -17,6 +17,7 @@ export class DialerController {
    * this session, so Skip moves on instead of returning the same lead.
    * `asAgentId` (admins only) = dial that seller's queue instead of your own.
    * `list` = which numbers to dial (DIALER_LISTS in dialer.rules.ts; default ALL).
+   * `importedOn` = YYYY-MM-DD (India time): New / Reserved leads added that day only.
    */
   @Get('next')
   getNext(
@@ -24,8 +25,9 @@ export class DialerController {
     @Query('skip') skip?: string,
     @Query('asAgentId') asAgentId?: string,
     @Query('list') list?: string,
+    @Query('importedOn') importedOn?: string,
   ) {
-    return this.dialerService.getNext(req.user, skip ? skip.split(',') : [], asAgentId, list);
+    return this.dialerService.getNext(req.user, skip ? skip.split(',') : [], asAgentId, list, importedOn);
   }
 
   /** The number your phone is dialing right now, for the PC popup ({ item: null } when none). */

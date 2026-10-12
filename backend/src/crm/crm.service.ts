@@ -3,6 +3,7 @@ import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/com
 import { PrismaService } from '../prisma/prisma.service';
 import { LeadStatus, LeadSource, ActivityType } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { istDayStart } from '../dialer/dialer.rules';
 
 @Injectable()
 export class CrmService {
@@ -267,6 +268,15 @@ export class CrmService {
         agentId,
         status: { in: ['NEW', 'CONTACTED', 'INTERESTED'] },
         id: currentLeadId ? { not: currentLeadId } : undefined,
+        // Leads already called today are done for the day. Logging a call
+        // doesn't change the lead, so without this the dialer kept bouncing
+        // between the same two leads.
+        activities: {
+          none: {
+            type: { in: [ActivityType.CALL_MADE, ActivityType.CALL_BUSY, ActivityType.CALL_MISSED] },
+            createdAt: { gte: istDayStart() },
+          },
+        },
       },
       // Reserved leads only after the agent's other leads.
       orderBy: [{ isReserved: 'asc' }, { isHot: 'desc' }, { score: 'desc' }, { updatedAt: 'asc' }],
