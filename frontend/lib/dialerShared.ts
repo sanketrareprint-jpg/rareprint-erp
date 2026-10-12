@@ -69,15 +69,9 @@ export function fillRateListMessage(
 }
 
 /**
- * Opens the chat in the agent's logged-in WhatsApp Web with the message typed
- * (agent presses Send). WhatsApp Web reloads itself on every such link.
+ * Opens the chat in the agent's installed WhatsApp desktop app with the message
+ * typed (agent presses Send) — no browser tab, no reload.
  */
-export function whatsappWebUrl(phone: string, text: string): string {
-  const digits = phone.replace(/\D/g, "").slice(-10);
-  return `https://web.whatsapp.com/send?phone=91${digits}&text=${encodeURIComponent(text)}`;
-}
-
-/** Same, in the installed WhatsApp desktop app — no reload. */
 export function whatsappAppUrl(phone: string, text: string): string {
   const digits = phone.replace(/\D/g, "").slice(-10);
   return `whatsapp://send?phone=91${digits}&text=${encodeURIComponent(text)}`;

@@ -10,8 +10,9 @@
 // the phone saves it with the real call duration as soon as the call ends —
 // without asking for the reply again — then dials next, pauses or stops.
 // "End call" asks the phone to hang up (POST /dialer/end-call).
-// Interested → pick a rate list and open the chat in the agent's own
-// WhatsApp Web with the message typed in.
+// Interested → send the products or a rate list: opens the chat in the
+// agent's WhatsApp desktop app with the message typed in. Never WhatsApp Web —
+// web.whatsapp.com can't be reused from another site, so every click opened a new tab.
 // Mounted by DashboardShell on the website only (never inside the app).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PhoneCall, PhoneOff, Minus, MessageCircle, Plus, Trash2 } from "lucide-react";
@@ -27,7 +28,6 @@ import {
   productsWhatsAppMessage,
   replyProductRule,
   whatsappAppUrl,
-  whatsappWebUrl,
   type DialerOutcome,
   type DialerSettings,
   type NotInterestedReason,
@@ -40,7 +40,6 @@ const POLL_MS = 3000;
 // yet / offline), poll only every BACKOFF_MS instead of flooding the server.
 const MAX_FAILS = 3;
 const BACKOFF_MS = 60000;
-const WHATSAPP_WINDOW = "rareprint_whatsapp"; // reuse one WhatsApp Web tab
 
 type Then = "NEXT" | "PAUSE" | "STOP";
 type LiveState = "DIALING" | "ON_CALL" | "WRAP_UP";
@@ -237,20 +236,18 @@ export function DialerDeskPopup() {
           quantity: Number(r.quantity) > 0 ? Number(r.quantity) : null,
           rate: r.rate.trim() && Number.isFinite(Number(r.rate)) ? Number(r.rate) : null,
         }));
-  const sendProducts = (where: "web" | "app") => {
+  const sendProducts = () => {
     if (!productsToSend.length) return;
     const text = productsWhatsAppMessage(productsToSend, { name: item.name, agent: item.agent.name, agentPhone: item.agent.phone });
-    if (where === "web") window.open(whatsappWebUrl(item.phone, text), WHATSAPP_WINDOW);
-    else window.location.href = whatsappAppUrl(item.phone, text);
+    window.location.href = whatsappAppUrl(item.phone, text);
   };
 
   const rateListText = () => rateList ? fillRateListMessage(rateList.message, {
     name: item.name, business: item.businessName, agent: item.agent.name, agentPhone: item.agent.phone,
   }) : "";
-  const openWhatsApp = (where: "web" | "app") => {
+  const openWhatsApp = () => {
     if (!rateList) return;
-    if (where === "web") window.open(whatsappWebUrl(item.phone, rateListText()), WHATSAPP_WINDOW);
-    else window.location.href = whatsappAppUrl(item.phone, rateListText());
+    window.location.href = whatsappAppUrl(item.phone, rateListText());
   };
   const copyMessage = async () => {
     if (!rateList) return;
@@ -462,13 +459,9 @@ export function DialerDeskPopup() {
               <div className="flex items-center gap-1 font-semibold text-emerald-800"><MessageCircle size={14} /> Send product details on WhatsApp</div>
               {/* 1. The products entered above, with quantity + rate */}
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" disabled={!productsToSend.length} onClick={() => sendProducts("web")}
+                <button type="button" disabled={!productsToSend.length} onClick={sendProducts}
                   className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white disabled:opacity-50">
-                  Send {productsToSend.length ? `these ${productsToSend.length} product${productsToSend.length > 1 ? "s" : ""}` : "the products above"} — WhatsApp Web
-                </button>
-                <button type="button" disabled={!productsToSend.length} onClick={() => sendProducts("app")}
-                  className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-xs font-medium text-emerald-800 disabled:opacity-50">
-                  Desktop app
+                  Send {productsToSend.length ? `these ${productsToSend.length} product${productsToSend.length > 1 ? "s" : ""}` : "the products above"} — WhatsApp app
                 </button>
               </div>
               {!productsToSend.length && <p className="text-xs text-emerald-800">Add the products above to send them.</p>}
@@ -484,13 +477,9 @@ export function DialerDeskPopup() {
                     {settings.rateLists.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" disabled={!rateList} onClick={() => openWhatsApp("web")}
+                    <button type="button" disabled={!rateList} onClick={openWhatsApp}
                       className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white disabled:opacity-50">
-                      Open in my WhatsApp Web
-                    </button>
-                    <button type="button" disabled={!rateList} onClick={() => openWhatsApp("app")}
-                      className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-xs font-medium text-emerald-800 disabled:opacity-50">
-                      WhatsApp desktop app
+                      Open in my WhatsApp app
                     </button>
                     <button type="button" disabled={!rateList} onClick={copyMessage}
                       className="rounded-lg border border-emerald-600 bg-white px-3 py-2 text-xs font-medium text-emerald-800 disabled:opacity-50">
