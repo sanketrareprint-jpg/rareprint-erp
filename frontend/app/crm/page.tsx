@@ -5,6 +5,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { AgentCallStats } from "@/components/AgentCallStats";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { whatsappAppUrl } from "@/lib/dialerShared";
 import {
   makeCall as nativeMakeCall,
   showCallOverlay,
@@ -204,6 +205,11 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 function CrmPageContent() {
   const isNativeApp = useIsNativeApp();
+  // WA button: in the phone app wa.me opens WhatsApp; on the website open the
+  // WhatsApp desktop app — WhatsApp Web can't be reused, every click was a new tab.
+  const waLinkProps = (phone: string) => isNativeApp
+    ? { href: `https://wa.me/91${phone}`, target: "_blank", rel: "noreferrer" }
+    : { href: whatsappAppUrl(phone, "") };
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -1172,7 +1178,7 @@ function CrmPageContent() {
                             className="inline-flex items-center gap-1 bg-green-600 text-white text-xs px-2 py-1 rounded-lg hover:bg-green-700 font-semibold mr-1"
                           >📞</button>
                           <button onClick={() => setShowContactCallModal(c)} className="text-xs border border-slate-200 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-50 mr-1">Log</button>
-                          <a href={`https://wa.me/91${c.phone}`} target="_blank" rel="noreferrer" className="text-xs bg-emerald-500 text-white px-2 py-1 rounded-lg hover:bg-emerald-600 font-semibold">WA</a>
+                          <a {...waLinkProps(c.phone)} className="text-xs bg-emerald-500 text-white px-2 py-1 rounded-lg hover:bg-emerald-600 font-semibold">WA</a>
                         </td>
                       </tr>
                     );
@@ -1342,7 +1348,7 @@ function CrmPageContent() {
                   onClick={() => initiateCall(selectedLead)}
                   className="text-center bg-green-600 text-white text-sm py-3 rounded-xl font-semibold hover:bg-green-700 active:bg-green-800"
                 >📞 Call</button>
-                <a href={`https://wa.me/91${selectedLead.phone}`} target="_blank" rel="noreferrer"
+                <a {...waLinkProps(selectedLead.phone)}
                   className="text-center bg-emerald-500 text-white text-sm py-3 rounded-xl font-semibold hover:bg-emerald-600">💬 WA</a>
                 <button onClick={() => setShowCallModal(selectedLead)} className="border border-slate-200 text-slate-700 text-sm py-3 rounded-xl font-semibold hover:bg-slate-50">📋 Log</button>
               </div>
