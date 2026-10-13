@@ -22,6 +22,8 @@ export const isShopifyEnabled = () => !!process.env.SHOPIFY_WEBHOOK_SECRET?.trim
 // No order within this long of a checkout's last update = abandoned.
 const ABANDON_AFTER_MS = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+// Webhook log status for a new order saved but not turned into an ERP order.
+const HELD_PREFIX = 'HELD: ';
 const ORDER_TOPICS = ['orders/create', 'orders/updated', 'orders/paid', 'orders/cancelled', 'orders/fulfilled', 'orders/edited', 'orders/partially_fulfilled'];
 const CHECKOUT_TOPICS = ['checkouts/create', 'checkouts/update'];
 const TERMINAL_STATUSES: OrderStatus[] = [OrderStatus.CANCELLED, OrderStatus.DISPATCHED, OrderStatus.DELIVERED];
@@ -105,7 +107,7 @@ export class ShopifyService {
         : await this.syncCheckout(log.payload);
       await this.prisma.shopifyWebhookLog.update({
         where: { id: logId },
-        data: { status: 'PROCESSED', result, error: null, processedAt: new Date() },
+        data: { status: result.startsWith(HELD_PREFIX) ? 'HELD' : 'PROCESSED', result, error: null, processedAt: new Date() },
       });
     } catch (err: any) {
       this.logger.error(`Shopify webhook ${log.topic} ${log.resourceId} failed: ${err?.message}`, err?.stack);
@@ -158,9 +160,10 @@ export class ShopifyService {
       let orderId: string;
       let result: string;
       if (!existing) {
-        const created = await this.createOrder(tx, m);
-        orderId = created.id;
-        result = `Created order ${created.orderNumber}`;
+        // Held: ERP orders are no longer created automatically (Sanket,
+        // 2026-10-13) — they will be created only on approval in the
+        // Shopify inbox. The raw payload stays in ShopifyWebhookLog.
+        return `${HELD_PREFIX}new Shopify order ${m.shopifyName} saved, awaiting review — no ERP order created`;
       } else {
         const prevUpdatedAt = (existing.shopifyData as any)?.updatedAt;
         if (prevUpdatedAt && m.updatedAt && Date.parse(m.updatedAt) < Date.parse(prevUpdatedAt)) {
@@ -539,21 +542,21 @@ export class ShopifyService {
           await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date(), orderId: order.id } });
           continue;
         }
-        const claimed = await this.prisma.shopifyCheckout.updateMany({
+        // An order that is held for review (no ERP order yet) also converts it.
+        const heldOrder = await this.prisma.shopifyWebhookLog.findFirst({
+          where: { topic: { startsWith: 'orders/' }, payload: { path: ['checkout_token'], equals: row.token } },
+          select: { id: true },
+        });
+        if (heldOrder) {
+          await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date() } });
+          continue;
+        }
+        // No automatic lead/task any more (Sanket, 2026-10-13) — the team
+        // creates one by hand from the Shopify inbox.
+        await this.prisma.shopifyCheckout.updateMany({
           where: { id: row.id, status: 'OPEN' },
           data: { status: 'ABANDONED', abandonedAt: new Date() },
         });
-        if (claimed.count === 0) continue;
-        try {
-          const followUp = await this.createFollowUp(row);
-          if (followUp.leadId || followUp.taskId) {
-            await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: followUp });
-          }
-        } catch (err: any) {
-          // e.g. no active sales agent — put it back so the next run retries.
-          this.logger.error(`Shopify abandoned checkout ${row.token} follow-up failed: ${err?.message}`);
-          await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'OPEN', abandonedAt: null } });
-        }
       }
     } finally {
       this.abandoning = false;
