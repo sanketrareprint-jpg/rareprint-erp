@@ -152,8 +152,8 @@ export class DialerService {
       RESERVED_LEADS: [reservedLeads],
       NOT_CONTACTED: [notContacted],
       FOLLOW_UPS: [dueToday, olderFollowUps],
-      INTERESTED: [(skip) => this.statusCandidates('INTERESTED', LeadStatus.INTERESTED, queueAgentId, skip)],
-      NOT_INTERESTED: [(skip) => this.statusCandidates('NOT_INTERESTED', LeadStatus.LOST, queueAgentId, skip)],
+      INTERESTED: [(skip) => this.statusCandidates('INTERESTED', LeadStatus.INTERESTED, queueAgentId, skip, todayStart)],
+      NOT_INTERESTED: [(skip) => this.statusCandidates('NOT_INTERESTED', LeadStatus.LOST, queueAgentId, skip, todayStart)],
       BUSY: [(skip) => this.lastOutcomeCandidates('BUSY', DialerOutcome.BUSY, queueAgentId, skip)],
       NOT_ANSWERED: [(skip) => this.lastOutcomeCandidates('NOT_ANSWERED', DialerOutcome.NOT_ANSWERED, queueAgentId, skip)],
       CALLBACK: [(skip) => this.lastOutcomeCandidates('CALLBACK', DialerOutcome.CALLBACK, queueAgentId, skip)],
@@ -382,7 +382,7 @@ export class DialerService {
    * Not Contacted contacts (no Lead yet) in that pipeline status. Least
    * recently touched first.
    */
-  private async statusCandidates(source: QueueSource, status: LeadStatus, agentId: string, skip: number) {
+  private async statusCandidates(source: QueueSource, status: LeadStatus, agentId: string, skip: number, todayStart: Date) {
     const [leads, contacts] = await Promise.all([
       this.prisma.lead.findMany({
         where: { agentId, status },
@@ -405,7 +405,18 @@ export class DialerService {
     ]
       .sort((a, b) => a.at.getTime() - b.at.getTime())
       .map((x) => x.c);
-    return { items, more: leads.length === PAGE_SIZE || contacts.length === PAGE_SIZE };
+    // A call that doesn't change the status (not answered, busy) doesn't touch
+    // updatedAt, so the same leads stayed at the front and came back every
+    // RECENT_CALL_SKIP_MINUTES. Each number is offered once a day.
+    const dialedToday = items.length
+      ? await this.prisma.dialerCall.findMany({
+          where: { phone: { in: [...new Set(items.map((c) => c.phone))] }, startedAt: { gte: todayStart } },
+          select: { phone: true },
+          distinct: ['phone'],
+        })
+      : [];
+    const skipToday = new Set(dialedToday.map((d) => d.phone));
+    return { items: items.filter((c) => !skipToday.has(c.phone)), more: leads.length === PAGE_SIZE || contacts.length === PAGE_SIZE };
   }
 
   /**
