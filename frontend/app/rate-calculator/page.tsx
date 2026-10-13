@@ -224,7 +224,7 @@ const PRODUCT_CONFIG: Record<string, ProductConfig> = {
   diagnosticbag: { label: "X-ray / CT Scan Bags",
                 fixedInfo: "Small = X-ray bag 10.5x16 inch. Big = CT scan bag 16x21 inch." },
   nonwovenbag: { label: "Non Woven Bag",
-                fixedInfo: "Choose bag size and single color or multicolor. Multicolor adds the master extra per bag." },
+                fixedInfo: "Choose bag size and single color or multicolor. Multicolor uses the multicolor printing rate per bag instead of the single-color rate." },
   handlebag:  { label: "Handle Bag",
                 fixedInfo: "Enter size in inches, Gazzette (0 = no gazzette), fabric GSM and wall GSM. Fabric rate is set in the Rates tab." },
   dotmatrixbill: { label: "Dot Matrix Bill",
@@ -1726,8 +1726,8 @@ export default function RateCalculatorPage() {
   const nonWovenRates = rates?.nonWovenBag;
   const nonWovenBagsPerKg = Number(nonWovenRates?.bagsPerKg?.[rNonWovenSize] ?? 0);
   const nonWovenRatePerKg = Number(nonWovenRates?.ratePerKg ?? 0);
-  const nonWovenPrintingCostPerBag = Number(nonWovenRates?.printingCostPerBag ?? 0);
-  const nonWovenExtraRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 0) : 0;
+  // Multicolor replaces the single-color printing charge (not added on top) — mirrors the backend.
+  const nonWovenPrintingCostPerBag = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorExtraPerBag ?? 0) : Number(nonWovenRates?.printingCostPerBag ?? 0);
   const nonWovenMult = rMult !== "" ? rMult : (nonWovenRates?.multiplier ?? 0);
   const nonWovenDefaultPlateRate = rNonWovenPrintMode === "multicolor" ? Number(nonWovenRates?.multicolorPerPlateRate ?? 0) : Number(nonWovenRates?.perPlateRate ?? 0);
   const nonWovenPerPlateRateVal = rNonWovenPerPlateRate === "" ? nonWovenDefaultPlateRate : Number(rNonWovenPerPlateRate);
@@ -1736,8 +1736,7 @@ export default function RateCalculatorPage() {
   const nonWovenTotalKg = nonWovenBagsPerKg > 0 ? rQty / nonWovenBagsPerKg : 0;
   const nonWovenFabricCost = nonWovenTotalKg * nonWovenRatePerKg;
   const nonWovenPrintingCost = nonWovenPrintingCostPerBag * rQty;
-  const nonWovenExtraCost = nonWovenExtraRate * rQty;
-  const nonWovenSizeSubtotal = nonWovenFabricCost + nonWovenPrintingCost + nonWovenExtraCost + nonWovenPlateCost;
+  const nonWovenSizeSubtotal = nonWovenFabricCost + nonWovenPrintingCost + nonWovenPlateCost;
   const nonWovenSizeTotal = nonWovenSizeSubtotal * nonWovenMult;
   const nonWovenPreviewPerBag = rQty > 0 ? nonWovenSizeTotal / rQty : 0;
   // Mirrors the backend's input validation for Handle Bag (the cost formula
@@ -2176,7 +2175,7 @@ export default function RateCalculatorPage() {
                       <Field label="Printing">
                         <Select value={rNonWovenPrintMode} onChange={e => setRNonWovenPrintMode(e.target.value as "single" | "multicolor")}>
                           <option value="single">Single Color</option>
-                          <option value="multicolor">{isAdmin ? `Multicolor (+₹${nonWovenRates?.multicolorExtraPerBag ?? 0}/bag)` : "Multicolor"}</option>
+                          <option value="multicolor">{isAdmin ? `Multicolor (₹${nonWovenRates?.multicolorExtraPerBag ?? 0}/bag)` : "Multicolor"}</option>
                         </Select>
                       </Field>
                     </div>
@@ -2198,7 +2197,6 @@ export default function RateCalculatorPage() {
                       <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
                         <strong>{rQty.toLocaleString()} bags</strong> ÷ <strong>{nonWovenBagsPerKg}</strong>/kg = <strong>{nonWovenTotalKg.toFixed(2)} kg</strong> × ₹{nonWovenRatePerKg}/kg = <strong>{fmt(nonWovenFabricCost)}</strong>
                         {" "}+ printing <strong>{fmt(nonWovenPrintingCost)}</strong>
-                        {nonWovenExtraCost > 0 ? <> + multicolor <strong>{fmt(nonWovenExtraCost)}</strong></> : ""}
                         {" "}+ <strong>{nonWovenPlates} plate{nonWovenPlates > 1 ? "s" : ""}</strong> × ₹{nonWovenPerPlateRateVal} = <strong>{fmt(nonWovenPlateCost)}</strong>
                         {" "}→ cost <strong>{fmt(nonWovenSizeSubtotal)}</strong> × multiplier {nonWovenMult} → approx <strong>{fmt(nonWovenPreviewPerBag)}</strong>/bag
                       </div>
@@ -2625,7 +2623,7 @@ export default function RateCalculatorPage() {
                     <Field label="Printing Charge (₹/bag)">
                       <Input type="number" step="0.01" value={rates.nonWovenBag?.printingCostPerBag ?? ""} onChange={e => updateRate("nonWovenBag.printingCostPerBag", +e.target.value)} />
                     </Field>
-                    <Field label="Multicolor Extra (₹/bag)">
+                    <Field label="Multicolor Printing Charge (₹/bag)">
                       <Input type="number" step="0.01" value={rates.nonWovenBag?.multicolorExtraPerBag ?? ""} onChange={e => updateRate("nonWovenBag.multicolorExtraPerBag", +e.target.value)} />
                     </Field>
                     <Field label="Per Plate Rate (₹)">

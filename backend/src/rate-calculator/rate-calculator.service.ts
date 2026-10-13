@@ -907,21 +907,23 @@ export class RateCalculatorService {
       // cost above, all before the usual multiplier.
       const bagsPerKg = Number(nw.bagsPerKg?.[size] ?? DEFAULT_RATES.nonWovenBag.bagsPerKg[size] ?? DEFAULT_RATES.nonWovenBag.bagsPerKg['12x15']);
       const ratePerKg = Number(dto.nonWovenRatePerKg ?? nw.ratePerKg ?? DEFAULT_RATES.nonWovenBag.ratePerKg);
-      const printingCostPerBag = Number(dto.nonWovenPrintingCostPerBag ?? nw.printingCostPerBag ?? DEFAULT_RATES.nonWovenBag.printingCostPerBag);
+      // Multicolor printing is charged at its own per-bag rate INSTEAD of the
+      // single-color printing charge, not on top of it.
+      const defaultPrintingCostPerBag = printMode === 'multicolor'
+        ? (nw.multicolorExtraPerBag ?? DEFAULT_RATES.nonWovenBag.multicolorExtraPerBag)
+        : (nw.printingCostPerBag ?? DEFAULT_RATES.nonWovenBag.printingCostPerBag);
+      const printingCostPerBag = Number(dto.nonWovenPrintingCostPerBag ?? defaultPrintingCostPerBag);
       const totalKg = bagsPerKg > 0 ? bagQty / bagsPerKg : 0;
       const fabricCost = totalKg * ratePerKg;
       const printingCost = printingCostPerBag * bagQty;
 
-      const extraRate = printMode === 'multicolor' ? Number(nw.multicolorExtraPerBag ?? DEFAULT_RATES.nonWovenBag.multicolorExtraPerBag) : 0;
-      const extraCost = extraRate * bagQty;
-      const subtotal = fabricCost + printingCost + extraCost + plateCost;
+      const subtotal = fabricCost + printingCost + plateCost;
       const multiplier = dtoMult ?? nw.multiplier ?? DEFAULT_RATES.nonWovenBag.multiplier;
       const total = subtotal * multiplier;
       const breakdown: any[] = [
         { label: `Fabric (${bagQty.toLocaleString()} bags ÷ ${bagsPerKg}/kg = ${totalKg.toFixed(2)} kg x Rs.${ratePerKg}/kg)`, amount: fabricCost },
-        { label: `Printing (Rs.${printingCostPerBag}/bag x ${bagQty.toLocaleString()} bags)`, amount: printingCost },
+        { label: `Printing${printMode === 'multicolor' ? ' (multicolor)' : ''} (Rs.${printingCostPerBag}/bag x ${bagQty.toLocaleString()} bags)`, amount: printingCost },
       ];
-      if (extraCost > 0) breakdown.push({ label: `Multicolor extra (${bagQty.toLocaleString()} bags x Rs.${extraRate})`, amount: extraCost });
       breakdown.push({ label: `Plate${plates > 1 ? 's' : ''} (${plates} x Rs.${perPlateRate}) — ${plates > 1 ? 'both sides different design' : 'both sides same design'}`, amount: plateCost });
       return {
         breakdown,
