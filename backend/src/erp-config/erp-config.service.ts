@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type CustomFieldType = 'text' | 'number' | 'date' | 'select' | 'textarea';
@@ -43,6 +43,47 @@ export type ErpConfig = {
 };
 
 const DB_KEY = 'erp_saas_config';
+
+// Sidebar categories. Kept under their own key, not inside erp_saas_config:
+// PUT /erp-config has no admin check and Settings / Virtual CEO save that
+// whole blob, while categories are admin-only (PUT /erp-config/nav-groups).
+// No row = the frontend's built-in defaults (frontend/lib/navGroups.ts).
+const NAV_GROUPS_KEY = 'sidebar_nav_groups';
+const MAX_NAV_GROUPS = 30;
+const MAX_NAV_LABEL = 40;
+const MAX_NAV_HREFS = 200;
+
+export type NavGroupConfig = { id: string; label: string; hrefs: string[] };
+
+/** Validates admin-submitted sidebar categories. Each link may sit in one category only. */
+export function normalizeNavGroups(input: unknown): NavGroupConfig[] {
+  if (!Array.isArray(input)) throw new BadRequestException('groups must be an array');
+  if (input.length > MAX_NAV_GROUPS) throw new BadRequestException(`At most ${MAX_NAV_GROUPS} categories`);
+  const ids = new Set<string>();
+  const placed = new Map<string, string>();
+  return input.map((raw: any) => {
+    const id = typeof raw?.id === 'string' ? raw.id.trim() : '';
+    const label = typeof raw?.label === 'string' ? raw.label.trim() : '';
+    if (!/^[a-z0-9-]{1,40}$/.test(id)) throw new BadRequestException(`Invalid category id "${id}"`);
+    if (ids.has(id)) throw new BadRequestException(`Duplicate category id "${id}"`);
+    ids.add(id);
+    if (!label || label.length > MAX_NAV_LABEL) {
+      throw new BadRequestException(`Category name must be 1-${MAX_NAV_LABEL} characters`);
+    }
+    if (!Array.isArray(raw?.hrefs)) throw new BadRequestException(`Category "${label}" has no link list`);
+    const hrefs = raw.hrefs.map((href: unknown) => {
+      if (typeof href !== 'string' || !/^\/[a-z0-9\-/]{0,99}$/i.test(href) || href.startsWith('//')) {
+        throw new BadRequestException(`Invalid link "${String(href)}" in "${label}"`);
+      }
+      const other = placed.get(href);
+      if (other) throw new BadRequestException(`${href} is in both "${other}" and "${label}"`);
+      placed.set(href, label);
+      return href;
+    });
+    if (placed.size > MAX_NAV_HREFS) throw new BadRequestException('Too many links');
+    return { id, label, hrefs };
+  });
+}
 
 export const DEFAULT_MODULES: ModuleConfig[] = [
   { key: 'dashboard', label: 'Dashboard', href: '/dashboard', enabled: true },
@@ -130,6 +171,33 @@ export class ErpConfigService {
       create: { key: DB_KEY, value: JSON.stringify(next) },
     });
     return next;
+  }
+
+  /** groups: null means "use the built-in default categories". */
+  async getNavGroups(): Promise<{ groups: NavGroupConfig[] | null }> {
+    const row = await this.prisma.systemConfig.findUnique({ where: { key: NAV_GROUPS_KEY } });
+    if (!row?.value) return { groups: null };
+    try {
+      return { groups: normalizeNavGroups(JSON.parse(row.value)) };
+    } catch {
+      return { groups: null };
+    }
+  }
+
+  /** null resets to the built-in defaults. */
+  async setNavGroups(input: unknown): Promise<{ groups: NavGroupConfig[] | null }> {
+    if (input === null) {
+      await this.prisma.systemConfig.deleteMany({ where: { key: NAV_GROUPS_KEY } });
+      return { groups: null };
+    }
+    const groups = normalizeNavGroups(input);
+    const value = JSON.stringify(groups);
+    await this.prisma.systemConfig.upsert({
+      where: { key: NAV_GROUPS_KEY },
+      update: { value },
+      create: { key: NAV_GROUPS_KEY, value },
+    });
+    return { groups };
   }
 
   private mergeConfig(input: Partial<ErpConfig>): ErpConfig {

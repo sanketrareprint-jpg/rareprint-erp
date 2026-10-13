@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ErpConfigService, type ErpConfig } from './erp-config.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,6 +20,24 @@ export class ErpConfigController {
   @Put()
   updateConfig(@Body() body: Partial<ErpConfig>) {
     return this.erpConfig.updateConfig(body);
+  }
+
+  // ── Sidebar categories ─────────────────────────────────────────────────────
+  // Every signed-in user reads them (their sidebar is drawn from them); only
+  // ADMIN can change them.
+
+  @Get('nav-groups')
+  getNavGroups() {
+    return this.erpConfig.getNavGroups();
+  }
+
+  @Put('nav-groups')
+  updateNavGroups(@Req() req: any, @Body() body: { groups?: unknown }) {
+    if (req.user?.role !== 'ADMIN') {
+      throw new ForbiddenException('Only admins can change sidebar categories');
+    }
+    if (!body || !('groups' in body)) throw new BadRequestException('groups is required');
+    return this.erpConfig.setNavGroups(body.groups ?? null);
   }
 
   // ── Offer Codes ────────────────────────────────────────────────────────────

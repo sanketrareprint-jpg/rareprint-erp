@@ -337,6 +337,19 @@ textarea {
     font-weight: 800;
   }
 
+  .erp-mobile-menu-section {
+    margin: 6px 0 0;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #94a3b8;
+  }
+
+  .erp-mobile-menu-grid.is-section {
+    padding-top: 8px;
+  }
+
   .erp-mobile-menu-item.is-active {
     border-color: #ee1c25;
     background: #fef1f1;

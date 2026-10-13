@@ -3528,3 +3528,38 @@ model ShopifyProductLink {
   @@index([productId])
 }
 
+// Web Analytics (owner-only dashboard, 2026-10-13): GA4 + Search Console data
+// pulled by src/web-analytics/web-analytics.service.ts every 6 hours so the
+// dashboard reads from our DB, never live from Google. One row per
+// source/report/range/period, overwritten on every successful sync.
+// source: GA4 | GSC. period: current | previous. rows is the report JSON.
+model WebAnalyticsReport {
+  id        String   @id @default(cuid())
+  source    String
+  report    String
+  rangeDays Int
+  period    String
+  startDate String
+  endDate   String
+  rows      Json
+  syncedAt  DateTime @default(now())
+
+  @@unique([source, report, rangeDays, period])
+}
+
+// One row per sync run. status: RUNNING | SUCCESS | PARTIAL | FAILED.
+// trigger: CRON | MANUAL. gscDataUpTo is the latest day Search Console had
+// final data for (it lags ~2-3 days).
+model WebAnalyticsSyncLog {
+  id          String    @id @default(cuid())
+  trigger     String
+  status      String    @default("RUNNING")
+  ga4Ok       Boolean?
+  gscOk       Boolean?
+  gscDataUpTo String?
+  error       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([startedAt])
+}

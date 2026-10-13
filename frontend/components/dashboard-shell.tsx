@@ -10,16 +10,18 @@ import {
   Truck, DollarSign, LogOut, Printer, Layers, Database, BarChart2, BookOpen, Phone,
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
-  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp, TicketPercent,
-  PhoneOutgoing, ShoppingBag,
+  ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp, TicketPercent, TrendingUp,
+  PhoneOutgoing, ShoppingBag, ChevronDown, Folder,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { DEFAULT_NAV_GROUPS, groupNavItems, type NavEntry, type NavGroupConfig } from "@/lib/navGroups";
 import { useActivityTracker } from "@/lib/useActivityTracker";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { DialerDeskPopup } from "@/components/DialerDeskPopup";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH" | "DESIGNER";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
+type NavGroupEntry = Extract<NavEntry<NavItem>, { kind: "group" }>;
 interface StoredUser { id: string; fullName?: string; email: string; role: Role; }
 type ErpConfig = {
   modules: Array<{ key: string; href: string; enabled: boolean; fixed?: boolean }>;
@@ -54,6 +56,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { label: "COD Remittance", href: "/remittance-import", icon: PackageCheck },
     { label: "Bank Statement", href: "/bank-statement", icon: Landmark },
     { label: "Marketing",  href: "/marketing",        icon: Megaphone },
+    { label: "Web Analytics", href: "/web-analytics", icon: TrendingUp },
     { label: "Design",     href: "/design-studio",    icon: Palette },
     { label: "Reports",    href: "/reports",          icon: FileSpreadsheet },
     { label: "CRM",        href: "/crm",              icon: BarChart2 },
@@ -166,6 +169,22 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ],
 };
 
+// Every sidebar link across all roles, once each — the Settings > Sidebar
+// Categories editor lists these.
+export const ALL_NAV_LINKS: { label: string; href: string }[] = Array.from(
+  new Map(Object.values(NAV_BY_ROLE).flat().map((item) => [item.href, { label: item.label, href: item.href }])).values(),
+);
+
+// Icons for the built-in categories; categories an admin adds get a folder.
+const NAV_GROUP_ICONS: Record<string, React.ElementType> = {
+  sales: Users, care: ThumbsUp, fulfilment: Truck, production: Package,
+  finance: DollarSign, marketing: Megaphone, hr: Briefcase, admin: Settings,
+};
+
+// Window event Settings fires after saving categories, so the open
+// sidebar updates without a reload.
+export const NAV_GROUPS_UPDATED_EVENT = "rareprint:nav-groups-updated";
+
 // Routes a DESIGNER account is allowed to open directly (by URL or nav).
 // Anything else redirects back to Sheet Layout — nav-hiding alone doesn't
 // stop direct navigation, so this is enforced here for this restricted role.
@@ -253,6 +272,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // Shopify inbox: hidden until the backend says the integration is enabled
   // (SHOPIFY_WEBHOOK_SECRET set); badge = new orders + untouched abandoned carts.
   const [shopifyCounts, setShopifyCounts] = useState<{ enabled: boolean; waiting: number } | null>(null);
+  const [webAnalyticsAllowed, setWebAnalyticsAllowed] = useState(false);
+  // Sidebar categories: which ones are expanded is remembered per browser;
+  // in the collapsed (icons-only) sidebar a category opens as a pop-out.
+  const [navGroups, setNavGroups] = useState<NavGroupConfig[]>(DEFAULT_NAV_GROUPS);
+  const [openGroups, setOpenGroups] = useState<string[] | null>(null);
+  const [flyout, setFlyout] = useState<{ id: string; top: number; left: number } | null>(null);
 
   // Loads the stored user post-mount (client-only, see the state comment
   // above) and redirects if there isn't one — combined into one effect so
@@ -308,6 +333,46 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(timer);
   }, [user, pathname]);
 
+  // Web Analytics is owner-only (OWNER_EMAIL). The backend enforces it; this
+  // only hides the menu item from everyone else.
+  useEffect(() => {
+    if (!user || user.role !== "ADMIN") return;
+    fetch(`${API}/web-analytics/access`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { allowed?: boolean } | null) => setWebAnalyticsAllowed(data?.allowed === true))
+      .catch(() => {/* silent */});
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetch(`${API}/erp-config/nav-groups`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { groups?: NavGroupConfig[] | null } | null) => {
+        if (Array.isArray(data?.groups)) setNavGroups(data.groups);
+      })
+      .catch(() => {/* keep default categories */});
+  }, [user]);
+
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const groups = (event as CustomEvent<NavGroupConfig[] | null>).detail;
+      setNavGroups(Array.isArray(groups) ? groups : DEFAULT_NAV_GROUPS);
+    };
+    window.addEventListener(NAV_GROUPS_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(NAV_GROUPS_UPDATED_EVENT, onUpdated);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("rareprint_sidebar_open_groups") ?? "[]");
+      setOpenGroups(Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : []);
+    } catch { setOpenGroups([]); }
+  }, []);
+
+  useEffect(() => {
+    if (openGroups) window.localStorage.setItem("rareprint_sidebar_open_groups", JSON.stringify(openGroups));
+  }, [openGroups]);
+
   useEffect(() => {
     if (!user) return;
     fetch(`${API}/erp-config`, { headers: getAuthHeaders() })
@@ -335,8 +400,123 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         return Boolean(module?.enabled || module?.fixed) && roleKeys.includes(key);
       })
     : baseNavItems
-  ).filter((item) => item.href !== "/shopify" || shopifyCounts?.enabled === true);
+  ).filter((item) => item.href !== "/shopify" || shopifyCounts?.enabled === true)
+    .filter((item) => item.href !== "/web-analytics" || webAnalyticsAllowed);
   const name     = user?.fullName ?? "…";
+
+  const isActiveHref = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  const navEntries = groupNavItems(navItems, navGroups);
+  const groupEntries = navEntries.filter((e): e is NavGroupEntry => e.kind === "group");
+  const activeGroupId = groupEntries.find((e) => e.items.some((i) => isActiveHref(i.href)))?.group.id;
+  const groupsLoaded = openGroups !== null;
+  const shopifyWaiting = (shopifyCounts?.waiting ?? 0) > 0;
+
+  // Opening a page inside a category expands that category.
+  useEffect(() => {
+    if (!groupsLoaded || !activeGroupId) return;
+    setOpenGroups((prev) => (prev && !prev.includes(activeGroupId) ? [...prev, activeGroupId] : prev));
+  }, [pathname, activeGroupId, groupsLoaded]);
+
+  useEffect(() => { setFlyout(null); }, [pathname, collapsed]);
+
+  useEffect(() => {
+    if (!flyout) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFlyout(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [flyout]);
+
+  const toggleGroup = (id: string) =>
+    setOpenGroups((prev) => (prev ?? []).includes(id) ? (prev ?? []).filter((g) => g !== id) : [...(prev ?? []), id]);
+
+  const renderSidebarLink = (item: NavItem, nested: boolean) => {
+    const Icon   = item.icon;
+    const active = isActiveHref(item.href);
+    return (
+      <Link key={item.href} href={item.href} className="erp-sidebar-link" title={collapsed ? item.label : undefined} style={{
+        display: "flex", flexDirection: "row",
+        alignItems: "center", gap: collapsed ? 0 : "10px",
+        justifyContent: collapsed ? "center" : "flex-start",
+        minHeight: nested ? "36px" : "40px", borderRadius: "8px",
+        padding: collapsed ? "8px 0" : nested ? "5px 8px 5px 14px" : "6px 8px",
+        background: "transparent",
+        color: active ? "#0f172a" : "#64748b",
+        textDecoration: "none",
+        fontSize: "12px", fontWeight: active ? 600 : 500, lineHeight: "1.2",
+        transition: "color 0.15s, background 0.15s",
+      }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#f8fafc"; if (!active) (e.currentTarget as HTMLElement).style.color = "#0f172a"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; if (!active) (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
+      >
+        <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+          <Icon size={nested ? 16 : 18} strokeWidth={1.75} />
+          {item.href === "/shopify" && collapsed && shopifyWaiting && (
+            <span style={{ position: "absolute", top: "-4px", right: "-6px", minWidth: "8px", height: "8px", borderRadius: "999px", background: "#ee1c25" }} />
+          )}
+        </span>
+        {!collapsed && (
+          <span style={{ overflowWrap: "normal", wordBreak: "normal", whiteSpace: "normal" }}>
+            {item.label}
+          </span>
+        )}
+        {!collapsed && item.href === "/shopify" && shopifyWaiting && (
+          <span style={{
+            marginLeft: "auto", minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px",
+            background: "#ee1c25", color: "#fff", fontSize: "10.5px", fontWeight: 700,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>
+            {shopifyCounts!.waiting > 99 ? "99+" : shopifyCounts!.waiting}
+          </span>
+        )}
+      </Link>
+    );
+  };
+
+  const renderSidebarGroup = (group: NavGroupConfig, items: NavItem[]) => {
+    const GroupIcon = NAV_GROUP_ICONS[group.id] ?? Folder;
+    const open = (openGroups ?? []).includes(group.id);
+    const containsActive = items.some((i) => isActiveHref(i.href));
+    const showDot = shopifyWaiting && items.some((i) => i.href === "/shopify") && (collapsed || !open);
+    return (
+      <div key={group.id}>
+        <button
+          type="button"
+          className="erp-sidebar-link"
+          title={collapsed ? group.label : undefined}
+          aria-expanded={collapsed ? flyout?.id === group.id : open}
+          onClick={(e) => {
+            if (!collapsed) { toggleGroup(group.id); return; }
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setFlyout((f) => (f?.id === group.id ? null : { id: group.id, top: rect.top, left: rect.right + 6 }));
+          }}
+          style={{
+            display: "flex", flexDirection: "row", alignItems: "center", width: "100%",
+            gap: collapsed ? 0 : "10px", justifyContent: collapsed ? "center" : "flex-start",
+            minHeight: "40px", borderRadius: "8px", padding: collapsed ? "8px 0" : "6px 8px",
+            background: collapsed && containsActive ? "#f1f5f9" : "transparent", border: "none", cursor: "pointer",
+            color: containsActive ? "#0f172a" : "#64748b",
+            fontSize: "12px", fontWeight: 600, lineHeight: "1.2", textAlign: "left",
+          }}
+        >
+          <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+            <GroupIcon size={18} strokeWidth={1.75} />
+            {showDot && (
+              <span style={{ position: "absolute", top: "-4px", right: "-6px", minWidth: "8px", height: "8px", borderRadius: "999px", background: "#ee1c25" }} />
+            )}
+          </span>
+          {!collapsed && <span style={{ flex: 1 }}>{group.label}</span>}
+          {!collapsed && <ChevronDown size={14} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />}
+        </button>
+        {!collapsed && open && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "4px" }}>
+            {items.map((item) => renderSidebarLink(item, true))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const flyoutEntry = flyout ? groupEntries.find((e) => e.group.id === flyout.id) : undefined;
 
   return (
     <div className="erp-shell" style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -479,48 +659,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           gap: "2px",
           width: "100%", padding: collapsed ? "0 6px" : "0 6px",
         }}>
-          {navItems.map((item) => {
-            const Icon   = item.icon;
-            const active = pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link key={item.href} href={item.href} className="erp-sidebar-link" title={collapsed ? item.label : undefined} style={{
-                display: "flex", flexDirection: "row",
-                alignItems: "center", gap: collapsed ? 0 : "10px",
-                justifyContent: collapsed ? "center" : "flex-start",
-                minHeight: "40px", borderRadius: "8px",
-                padding: collapsed ? "8px 0" : "6px 8px",
-                background: "transparent",
-                color: active ? "#0f172a" : "#64748b",
-                textDecoration: "none",
-                fontSize: "12px", fontWeight: active ? 600 : 500, lineHeight: "1.2",
-                transition: "color 0.15s, background 0.15s",
-              }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#f8fafc"; if (!active) (e.currentTarget as HTMLElement).style.color = "#0f172a"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; if (!active) (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
-              >
-                <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
-                  <Icon size={18} strokeWidth={1.75} />
-                  {item.href === "/shopify" && collapsed && (shopifyCounts?.waiting ?? 0) > 0 && (
-                    <span style={{ position: "absolute", top: "-4px", right: "-6px", minWidth: "8px", height: "8px", borderRadius: "999px", background: "#ee1c25" }} />
-                  )}
-                </span>
-                {!collapsed && (
-                  <span style={{ overflowWrap: "normal", wordBreak: "normal", whiteSpace: "normal" }}>
-                    {item.label}
-                  </span>
-                )}
-                {!collapsed && item.href === "/shopify" && (shopifyCounts?.waiting ?? 0) > 0 && (
-                  <span style={{
-                    marginLeft: "auto", minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px",
-                    background: "#ee1c25", color: "#fff", fontSize: "10.5px", fontWeight: 700,
-                    display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    {shopifyCounts!.waiting > 99 ? "99+" : shopifyCounts!.waiting}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+          {navEntries.map((entry) =>
+            entry.kind === "link" ? renderSidebarLink(entry.item, false) : renderSidebarGroup(entry.group, entry.items),
+          )}
         </nav>
           {/* Notification Bell */}
           <div className="erp-desktop-notifications" style={{ padding: "8px 8px 0", display: "flex", justifyContent: collapsed ? "center" : "flex-start" }}>
@@ -590,6 +731,49 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
+      {/* Collapsed sidebar: a category's links open as a pop-out beside it. */}
+      {flyout && flyoutEntry && (
+        <div onClick={() => setFlyout(null)} style={{ position: "fixed", inset: 0, zIndex: 60 }}>
+          <div
+            role="menu"
+            aria-label={flyoutEntry.group.label}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed", top: Math.max(8, Math.min(flyout.top, window.innerHeight - 48 - flyoutEntry.items.length * 38)), left: flyout.left,
+              minWidth: "180px", padding: "6px", borderRadius: "10px",
+              background: "#ffffff", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.14)",
+              display: "flex", flexDirection: "column", gap: "2px",
+            }}
+          >
+            <p style={{ margin: 0, padding: "4px 8px 6px", fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              {flyoutEntry.group.label}
+            </p>
+            {flyoutEntry.items.map((item) => {
+              const Icon = item.icon;
+              const active = isActiveHref(item.href);
+              return (
+                <Link key={item.href} href={item.href} role="menuitem" onClick={() => setFlyout(null)} style={{
+                  display: "flex", alignItems: "center", gap: "10px", minHeight: "36px", padding: "6px 8px", borderRadius: "8px",
+                  color: active ? "#0f172a" : "#475569", background: active ? "#f1f5f9" : "transparent",
+                  fontSize: "12.5px", fontWeight: active ? 600 : 500, textDecoration: "none",
+                }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#f8fafc"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = active ? "#f1f5f9" : "transparent"; }}
+                >
+                  <Icon size={16} strokeWidth={1.75} />
+                  <span>{item.label}</span>
+                  {item.href === "/shopify" && shopifyWaiting && (
+                    <span style={{ marginLeft: "auto", minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px", background: "#ee1c25", color: "#fff", fontSize: "10.5px", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                      {shopifyCounts!.waiting > 99 ? "99+" : shopifyCounts!.waiting}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
       <main className="erp-main" style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#f8fafc" }}>
         {children}
@@ -644,23 +828,31 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 ×
               </button>
             </div>
-            <div className="erp-mobile-menu-grid">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`erp-mobile-menu-item${active ? " is-active" : ""}`}
-                  >
-                    <Icon size={20} />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
+            {[
+              { id: "", label: "", items: navEntries.flatMap((e) => (e.kind === "link" ? [e.item] : [])) },
+              ...groupEntries.map((e) => ({ id: e.group.id, label: e.group.label, items: e.items })),
+            ].filter((section) => section.items.length > 0).map((section) => (
+              <div key={section.id || "pinned"}>
+                {section.label && <p className="erp-mobile-menu-section">{section.label}</p>}
+                <div className={`erp-mobile-menu-grid${section.label ? " is-section" : ""}`}>
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActiveHref(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`erp-mobile-menu-item${active ? " is-active" : ""}`}
+                      >
+                        <Icon size={20} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
             <button onClick={handleLogout} className="erp-mobile-logout">
               <LogOut size={16} />
               Sign out

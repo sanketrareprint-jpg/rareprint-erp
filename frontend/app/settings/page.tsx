@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import DateInput from "@/components/DateInput";
+import { SidebarCategoriesEditor } from "@/components/SidebarCategoriesEditor";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { Loader2, CheckCircle2, AlertCircle, Truck, Settings2, Wifi, WifiOff, Wallet, RefreshCw, Warehouse, Plus, Trash2, Save, Workflow, Shield, PanelLeft, FileText, Tag, TicketPercent, PackageCheck, X, Edit2 } from "lucide-react";
@@ -547,6 +548,8 @@ export default function SettingsPage() {
             </ConfigPanel>
           </section>
         )}
+
+        <SidebarCategoriesEditor />
 
         {/* ── Offers & Combos ─────────────────────────────────────────────── */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5 shadow-sm">
