@@ -97,6 +97,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     ]) {
       await this.$executeRawUnsafe(sql).catch(() => { /* ignore if already exists */ });
     }
+    // Migration 20261013180000_add_shopify_product_link — new table, read on
+    // every Shopify inbox review. Same idempotent SQL as the migration file.
+    for (const sql of [
+      `CREATE TABLE IF NOT EXISTS "ShopifyProductLink" ("id" TEXT NOT NULL, "shopifyProductId" TEXT NOT NULL, "shopifyTitle" TEXT, "productId" TEXT NOT NULL, "linkedById" TEXT, "linkedByName" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "ShopifyProductLink_pkey" PRIMARY KEY ("id"))`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS "ShopifyProductLink_shopifyProductId_key" ON "ShopifyProductLink"("shopifyProductId")`,
+      `CREATE INDEX IF NOT EXISTS "ShopifyProductLink_productId_idx" ON "ShopifyProductLink"("productId")`,
+    ]) {
+      await this.$executeRawUnsafe(sql).catch(() => { /* ignore if already exists */ });
+    }
   }
   async onModuleDestroy() {
     await this.$disconnect();

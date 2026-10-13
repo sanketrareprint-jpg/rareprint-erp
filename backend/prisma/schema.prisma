@@ -3510,3 +3510,21 @@ model ShopifyInboxOrder {
   @@index([phone])
 }
 
+// Remembered match: Shopify product → ERP product (by product code), set from
+// the Shopify inbox review screen. Used before the SKU match to pre-fill the
+// ERP product on new Shopify orders. One row per Shopify product; productId is
+// a plain id (no FK) so deleting/deactivating a product never fails on it —
+// an inactive or missing product is simply not suggested.
+model ShopifyProductLink {
+  id               String   @id @default(cuid())
+  shopifyProductId String   @unique
+  shopifyTitle     String?
+  productId        String
+  linkedById       String?
+  linkedByName     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([productId])
+}
+
