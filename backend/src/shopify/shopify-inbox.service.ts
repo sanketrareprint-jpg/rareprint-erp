@@ -71,8 +71,16 @@ export class ShopifyInboxService {
         gateway: true, financialStatus: true, cancelledAt: true, orderId: true, rejectReason: true,
       },
     });
-    const orderNumbers = await this.erpOrderNumbers(rows.map((r) => r.orderId));
-    return rows.map((r) => ({ ...r, totalPrice: Number(r.totalPrice), erpOrderNumber: r.orderId ? orderNumbers.get(r.orderId) ?? null : null }));
+    const [orderNumbers, addresses] = await Promise.all([
+      this.erpOrderNumbers(rows.map((r) => r.orderId)),
+      this.shippingAddresses(rows.map((r) => r.id)),
+    ]);
+    return rows.map((r) => ({
+      ...r,
+      totalPrice: Number(r.totalPrice),
+      erpOrderNumber: r.orderId ? orderNumbers.get(r.orderId) ?? null : null,
+      address: addresses.get(r.id) ?? null,
+    }));
   }
 
   async getOrder(user: InboxUser, id: string) {
@@ -270,6 +278,26 @@ export class ShopifyInboxService {
       return lead.id;
     });
     return { ok: true, leadId, existing: false, agentName: agent.fullName };
+  }
+
+  // Full shipping address line for the list (street, city, state, PIN) —
+  // only the shipping_address object is read out of each stored payload, not
+  // the whole order JSON. Billing address when there is no shipping address.
+  private async shippingAddresses(ids: string[]) {
+    if (!ids.length) return new Map<string, string>();
+    const rows = await this.prisma.$queryRaw<{ id: string; a: any }[]>(Prisma.sql`
+      SELECT "id", COALESCE("payload"->'shipping_address', "payload"->'billing_address') AS "a"
+      FROM "ShopifyInboxOrder" WHERE "id" IN (${Prisma.join(ids)})`);
+    const out = new Map<string, string>();
+    for (const { id, a } of rows) {
+      if (!a || typeof a !== 'object') continue;
+      const line = [a.address1, a.address2, a.city, a.province, a.zip]
+        .map((v: any) => (v == null ? '' : String(v).trim()))
+        .filter(Boolean)
+        .join(', ');
+      if (line) out.set(id, line);
+    }
+    return out;
   }
 
   private async erpOrderNumbers(ids: (string | null)[]) {

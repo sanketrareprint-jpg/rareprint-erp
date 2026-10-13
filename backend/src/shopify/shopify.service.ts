@@ -45,7 +45,9 @@ export interface InboxUser { id: string; role: string; fullName?: string | null 
 export interface ApproveLine { productId: string; size: string; gsm: string; paper: string; sides: string }
 export interface ApproveInput {
   customer: { mode: 'existing'; customerId: string } | { mode: 'new' };
-  lines: { productId?: string | null; size?: string; gsm?: string; paper?: string; sides?: string }[];
+  // remember: also save this line's Shopify product → chosen ERP product as a
+  // ShopifyProductLink, so the next order for it is pre-filled.
+  lines: { productId?: string | null; size?: string; gsm?: string; paper?: string; sides?: string; remember?: boolean }[];
   salesAgentId?: string | null;
   note?: string | null;
 }
@@ -341,19 +343,44 @@ ${l.productionNotes}`,
     });
   }
 
-  // Pre-fill for the review screen: SKU match against the ERP catalogue, else
-  // null = the one generic "Shopify Item" product (GST 18%).
+  // Pre-fill for the review screen, most specific first (CLAUDE.md §29):
+  //  1. a saved ShopifyProductLink for this Shopify product (set by a reviewer),
+  //  2. a SKU match against the ERP catalogue,
+  //  3. null = the one generic "Shopify Item" product (GST 18%).
+  // A link to an inactive/missing product is skipped, falling through to SKU.
   async suggestProducts(lines: MappedOrder['lines']) {
-    const out: ({ id: string; name: string; sku: string; sizeInches: string; gsm: number; paperType: string | null; sides: string } | null)[] = [];
+    const select = { id: true, name: true, sku: true, sizeInches: true, gsm: true, paperType: true, sides: true } as const;
+    type Suggested = Prisma.ProductGetPayload<{ select: typeof select }> & { matchedBy: 'link' | 'sku' };
+    const ids = [...new Set(lines.map((l) => l.shopifyProductId).filter((x): x is string => !!x))];
+    const links = ids.length
+      ? await this.prisma.shopifyProductLink.findMany({ where: { shopifyProductId: { in: ids } }, select: { shopifyProductId: true, productId: true } })
+      : [];
+    const linkByShopifyId = new Map(links.map((l) => [l.shopifyProductId, l.productId]));
+    const out: (Suggested | null)[] = [];
     for (const line of lines) {
-      out.push(line.sku
-        ? await this.prisma.product.findFirst({
-            where: { isActive: true, sku: { equals: line.sku, mode: 'insensitive' } },
-            select: { id: true, name: true, sku: true, sizeInches: true, gsm: true, paperType: true, sides: true },
-          })
-        : null);
+      const linkedId = line.shopifyProductId ? linkByShopifyId.get(line.shopifyProductId) : undefined;
+      const linked = linkedId
+        ? await this.prisma.product.findFirst({ where: { id: linkedId, isActive: true, sku: { not: SHOPIFY_GENERIC_PRODUCT_SKU } }, select })
+        : null;
+      if (linked) { out.push({ ...linked, matchedBy: 'link' }); continue; }
+      const bySku = line.sku
+        ? await this.prisma.product.findFirst({ where: { isActive: true, sku: { equals: line.sku, mode: 'insensitive' } }, select })
+        : null;
+      out.push(bySku ? { ...bySku, matchedBy: 'sku' } : null);
     }
     return out;
+  }
+
+  // Saves (or re-points) the Shopify product → ERP product link. Never links
+  // to the generic "Shopify Item" — that would just hide unmatched lines.
+  private async saveProductLink(tx: Tx, line: MappedOrder['lines'][number], productId: string, genericId: string | null, user: InboxUser) {
+    if (!line.shopifyProductId || productId === genericId) return;
+    const data = { productId, shopifyTitle: line.title.slice(0, 250), linkedById: user.id, linkedByName: user.fullName ?? null };
+    await tx.shopifyProductLink.upsert({
+      where: { shopifyProductId: line.shopifyProductId },
+      update: data,
+      create: { shopifyProductId: line.shopifyProductId, ...data },
+    });
   }
 
   async genericProductId(tx: Tx): Promise<string> {
@@ -584,11 +611,14 @@ ${l.productionNotes}`,
       // Products: chosen id, or empty = the generic "Shopify Item".
       let genericId: string | null = null;
       const lines: ApproveLine[] = [];
+      const toLink: { line: MappedOrder['lines'][number]; productId: string }[] = [];
       for (const [i, l] of input.lines.entries()) {
-        let productId = l?.productId?.trim() || '';
+        const chosen = l?.productId?.trim() || '';
+        let productId = chosen;
         if (!productId) productId = genericId ??= await this.genericProductId(tx);
-        const product = await tx.product.findFirst({ where: { id: productId, isActive: true }, select: { id: true } });
+        const product = await tx.product.findFirst({ where: { id: productId, isActive: true }, select: { id: true, sku: true } });
         if (!product) throw new BadRequestException(`Line ${i + 1}: product not found or inactive`);
+        if (l?.remember === true && chosen && product.sku !== SHOPIFY_GENERIC_PRODUCT_SKU) toLink.push({ line: m.lines[i], productId });
         // Commas/newlines/pipes would break the spec line's parser.
         const clean = (v: any) => String(v ?? '').replace(/[,\n|]/g, ' ').trim().slice(0, 60);
         lines.push({ productId, size: clean(l.size), gsm: clean(l.gsm), paper: clean(l.paper), sides: clean(l.sides) });
@@ -610,6 +640,8 @@ ${l.productionNotes}`,
       } else {
         throw new BadRequestException('Choose an existing customer or create a new one');
       }
+
+      for (const { line, productId } of toLink) await this.saveProductLink(tx, line, productId, genericId, user);
 
       const approvedAt = new Date();
       const order = await this.createOrder(tx, m, {

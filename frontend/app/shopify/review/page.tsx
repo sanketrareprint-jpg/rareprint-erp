@@ -17,9 +17,10 @@ import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
 
 type Product = { id: string; name: string; sku: string; sizeInches: string; gsm: number; paperType: string | null; sides: string };
 type Line = {
-  title: string; variantTitle: string | null; sku: string | null; quantity: number; unitPrice: number;
+  shopifyProductId: string | null; title: string; variantTitle: string | null; sku: string | null; quantity: number; unitPrice: number;
   lineDiscount: number; lineTotal: number; grams: number | null; properties: { name: string; value: string }[];
-  suggestedProduct: Product | null;
+  // matchedBy: "link" = a saved Shopify product → ERP product link, "sku" = SKU match.
+  suggestedProduct: (Product & { matchedBy: "link" | "sku" }) | null;
 };
 type Address = { name?: string; company?: string; address1?: string; address2?: string; city?: string; province?: string; zip?: string; phone?: string } | null;
 type SuggestedCustomer = { id: string; customerCode: string; businessName: string; contactPerson: string | null; phone: string | null; email: string | null; city: string | null; state: string | null; gstNumber: string | null; matchedBy: string };
@@ -36,7 +37,9 @@ type Detail = {
   approvedByName: string | null; approvedAt: string | null; rejectedByName: string | null; rejectedAt: string | null; rejectReason: string | null;
   erpOrder: { id: string; orderNumber: string; status: string } | null;
 };
-type LineForm = { productId: string; size: string; gsm: string; paper: string; sides: string };
+// remember: save this Shopify product → ERP product link on approve, so the
+// next order for the same Shopify product is pre-filled with it.
+type LineForm = { productId: string; size: string; gsm: string; paper: string; sides: string; remember: boolean };
 
 const INPUT = "w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300";
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -98,6 +101,8 @@ function ReviewInner() {
       return {
         productId: l.suggestedProduct?.id ?? "",
         size: p?.sizeInches ?? "", gsm: p && p.gsm ? String(p.gsm) : "", paper: p?.paperType ?? "", sides: p?.sides ?? "",
+        // A SKU match isn't saved yet — offer to remember it. A link already is.
+        remember: !!p && p.matchedBy === "sku" && !!l.shopifyProductId,
       };
     }));
   }, [id]);
@@ -112,7 +117,10 @@ function ReviewInner() {
   function pickProduct(i: number, productId: string) {
     const p = productById.get(productId);
     // Picking a product pre-fills its catalogue specs; edits stay on this line.
-    setLine(i, p ? { productId, size: p.sizeInches ?? "", gsm: p.gsm ? String(p.gsm) : "", paper: p.paperType ?? "", sides: p.sides ?? "" } : { productId: "", size: "", gsm: "", paper: "", sides: "" });
+    // Choosing a product by hand defaults to remembering it for next time.
+    setLine(i, p
+      ? { productId, size: p.sizeInches ?? "", gsm: p.gsm ? String(p.gsm) : "", paper: p.paperType ?? "", sides: p.sides ?? "", remember: !!d?.lines[i]?.shopifyProductId }
+      : { productId: "", size: "", gsm: "", paper: "", sides: "", remember: false });
   }
 
   async function approve() {
@@ -253,7 +261,18 @@ function ReviewInner() {
                           <option value="">Shopify Item (generic, 18% GST)</option>
                           {products.filter((p) => p.id !== d.genericProductId).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
                         </select>
-                        {l.suggestedProduct && form.productId === l.suggestedProduct.id && <div className="text-[11px] text-green-700">Matched by SKU</div>}
+                        {l.suggestedProduct && form.productId === l.suggestedProduct.id && (
+                          <div className="text-[11px] text-green-700">
+                            {l.suggestedProduct.matchedBy === "link" ? `Linked — ERP product ${l.suggestedProduct.sku}` : "Matched by SKU"}
+                          </div>
+                        )}
+                        {!form.productId && editable && <div className="text-[11px] text-amber-700">Not linked — pick the ERP product (product code) for this Shopify item.</div>}
+                        {form.productId && l.shopifyProductId && !(l.suggestedProduct?.matchedBy === "link" && form.productId === l.suggestedProduct.id) && (
+                          <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
+                            <input type="checkbox" disabled={!editable} checked={form.remember} onChange={(e) => setLine(i, { remember: e.target.checked })} />
+                            Always use this ERP product for this Shopify product
+                          </label>
+                        )}
                         <div className="grid grid-cols-2 gap-1.5">
                           <input disabled={!editable} placeholder="Size" value={form.size} onChange={(e) => setLine(i, { size: e.target.value })} className={INPUT} />
                           <input disabled={!editable} placeholder="GSM" value={form.gsm} onChange={(e) => setLine(i, { gsm: e.target.value })} className={INPUT} />

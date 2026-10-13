@@ -26,6 +26,10 @@ export const SHOPIFY_LEAD_TAG = 'shopify-abandoned';
 export type ShopifyGateway = 'RAZORPAY' | 'COD' | 'MANUAL' | 'OTHER';
 
 export interface MappedLine {
+  // Shopify product / variant ids — the key for ShopifyProductLink (a
+  // remembered Shopify product → ERP product match). Null on custom lines.
+  shopifyProductId: string | null;
+  shopifyVariantId: string | null;
   title: string;
   variantTitle: string | null;
   sku: string | null;
@@ -182,6 +186,8 @@ export function mapLineItems(lineItems: any[]): MappedLine[] {
     const sku = str(li?.sku);
     const properties = formatProperties(li?.properties);
     lines.push({
+      shopifyProductId: str(li?.product_id),
+      shopifyVariantId: str(li?.variant_id),
       title,
       variantTitle,
       sku,
@@ -329,6 +335,7 @@ export function mapShopifyOrder(order: any): MappedOrder {
       billingAddress: bill,
       fulfillments,
       lineItems: lines.map((l) => ({
+        shopifyProductId: l.shopifyProductId, shopifyVariantId: l.shopifyVariantId,
         title: l.title, variantTitle: l.variantTitle, sku: l.sku, quantity: l.quantity,
         unitPrice: l.unitPrice, lineDiscount: l.lineDiscount, lineTotal: l.lineTotal,
         grams: l.grams, properties: l.properties,

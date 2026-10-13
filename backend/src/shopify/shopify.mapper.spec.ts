@@ -44,6 +44,17 @@ describe('Shopify mapper', () => {
     expect(m.lines[0].productionNotes).toBe('Dr. File — Art Card 300 GSM / 1000 pcs | SKU DRFILE-300');
   });
 
+  it('keeps Shopify product/variant ids for product links, without changing the content hash', () => {
+    const base = mapShopifyOrder(order());
+    expect(base.lines[0].shopifyProductId).toBeNull();
+    const li = { ...order().line_items[0], product_id: 9001, variant_id: 7002 };
+    const m = mapShopifyOrder(order({ line_items: [li] }));
+    expect(m.lines[0]).toMatchObject({ shopifyProductId: '9001', shopifyVariantId: '7002' });
+    expect(m.shopifyData.lineItems[0]).toMatchObject({ shopifyProductId: '9001', shopifyVariantId: '7002' });
+    // Approved orders compare this hash to spot Shopify edits — ids must not flag one.
+    expect(m.contentHash).toBe(base.contentHash);
+  });
+
   it('shipping is separate from item total and totals reconcile with Shopify', () => {
     const m = mapShopifyOrder(order());
     expect(m.itemsTotal).toBe(1100);

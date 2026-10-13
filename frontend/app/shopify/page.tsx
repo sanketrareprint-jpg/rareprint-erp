@@ -14,7 +14,7 @@ import { Loader2, MessageCircle, Search, ShoppingBag, UserPlus, Check, X } from 
 type InboxOrder = {
   id: string; shopifyName: string; status: string; isTest: boolean; orderDate: string;
   customerName: string | null; phone: string | null; city: string | null; state: string | null;
-  itemsSummary: string | null; totalPrice: number; gateway: string | null; financialStatus: string | null;
+  address: string | null; itemsSummary: string | null; totalPrice: number; gateway: string | null; financialStatus: string | null;
   cancelledAt: string | null; erpOrderNumber: string | null; rejectReason: string | null;
 };
 type CartItem = { title: string; variantTitle: string | null; quantity: number; price: number };
@@ -178,7 +178,7 @@ export default function ShopifyInboxPage() {
                 <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
                   <tr>
                     <th className="px-3 py-2 text-left">Order</th><th className="px-3 py-2 text-left">Date</th>
-                    <th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">City / State</th>
+                    <th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">Shipping address</th>
                     <th className="px-3 py-2 text-left">Items</th><th className="px-3 py-2 text-right">Total</th>
                     <th className="px-3 py-2 text-left">Payment</th><th className="px-3 py-2 text-left">Status</th>
                   </tr>
@@ -192,7 +192,7 @@ export default function ShopifyInboxPage() {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-gray-600">{when(o.orderDate)}</td>
                       <td className="px-3 py-2"><div className="font-medium text-gray-900">{o.customerName ?? "—"}</div><div className="text-xs text-gray-500">{o.phone ?? "no phone"}</div></td>
-                      <td className="px-3 py-2 text-gray-600">{[o.city, o.state].filter(Boolean).join(", ") || "—"}</td>
+                      <td className="px-3 py-2 text-gray-600 max-w-[16rem] break-words">{o.address ?? ([o.city, o.state].filter(Boolean).join(", ") || "—")}</td>
                       <td className="px-3 py-2 text-gray-700 max-w-xs">{o.itemsSummary ?? "—"}</td>
                       <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">{inr(o.totalPrice)}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-gray-700">{paymentLabel(o.gateway, o.financialStatus)}</td>
