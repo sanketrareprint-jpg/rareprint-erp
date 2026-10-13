@@ -11,7 +11,7 @@ import {
   Menu, CheckSquare, Archive, Megaphone, Grid, Palette, Users, Table2, Landmark, Settings, Bot, FileSpreadsheet,
   Lock, AlertTriangle, Activity, Shield, Wallet, PackageCheck, Briefcase, CalendarClock, Gift, MessageSquareWarning, PackagePlus,
   ChevronLeft, ChevronRight, PhoneCall, Gauge, Receipt, Award, PartyPopper, FileText, Calculator, ThumbsUp, TicketPercent,
-  PhoneOutgoing,
+  PhoneOutgoing, ShoppingBag,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useActivityTracker } from "@/lib/useActivityTracker";
@@ -30,6 +30,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ADMIN: [
     { label: "Dashboard",  href: "/dashboard",       icon: LayoutDashboard },
     { label: "Orders",     href: "/orders",           icon: ShoppingCart },
+    { label: "Shopify",    href: "/shopify",          icon: ShoppingBag },
     { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     { label: "Accounts",   href: "/accounts",         icon: DollarSign },
     { label: "Billing",    href: "/billing",          icon: Receipt },
@@ -91,6 +92,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   SALES_AGENT: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Shopify",   href: "/shopify",   icon: ShoppingBag },
     { label: "Parcel Booking", href: "/parcel-booking", icon: PackagePlus },
     // Billing page shows sellers only its Estimates tab.
     { label: "Billing", href: "/billing", icon: Receipt },
@@ -114,6 +116,7 @@ const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ACCOUNTS: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Orders",    href: "/orders",    icon: ShoppingCart },
+    { label: "Shopify",   href: "/shopify",   icon: ShoppingBag },
     { label: "Accounts",  href: "/accounts",  icon: DollarSign },
     { label: "Billing",   href: "/billing",   icon: Receipt },
     { label: "Tasks",     href: "/tasks",     icon: CheckSquare },
@@ -247,6 +250,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [erpConfig, setErpConfig] = useState<ErpConfig | null>(null);
   const [vceoLocked, setVceoLocked] = useState(false);
   const [vceoReviewRequired, setVceoReviewRequired] = useState(false);
+  // Shopify inbox: hidden until the backend says the integration is enabled
+  // (SHOPIFY_WEBHOOK_SECRET set); badge = new orders + untouched abandoned carts.
+  const [shopifyCounts, setShopifyCounts] = useState<{ enabled: boolean; waiting: number } | null>(null);
 
   // Loads the stored user post-mount (client-only, see the state comment
   // above) and redirects if there isn't one — combined into one effect so
@@ -290,6 +296,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   useEffect(() => {
+    if (!user || !["ADMIN", "ACCOUNTS", "SALES_AGENT"].includes(user.role)) return;
+    const load = () => fetch(`${API}/shopify/inbox/counts`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { enabled?: boolean; newOrders?: number; waitingCarts?: number } | null) => {
+        if (data) setShopifyCounts({ enabled: !!data.enabled, waiting: (data.newOrders ?? 0) + (data.waitingCarts ?? 0) });
+      })
+      .catch(() => {/* silent */});
+    void load();
+    const timer = window.setInterval(load, 60000);
+    return () => window.clearInterval(timer);
+  }, [user, pathname]);
+
+  useEffect(() => {
     if (!user) return;
     fetch(`${API}/erp-config`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
@@ -307,7 +326,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const role     = user?.role ?? "SALES_AGENT";
   const baseNavItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE["SALES_AGENT"];
-  const navItems = erpConfig
+  const navItems = (erpConfig
     ? baseNavItems.filter((item) => {
         const key = MODULE_KEY_BY_HREF[item.href];
         if (!key) return true;
@@ -315,7 +334,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         const roleKeys = Array.isArray(erpConfig.roleAccess?.[role]) ? erpConfig.roleAccess[role] : [];
         return Boolean(module?.enabled || module?.fixed) && roleKeys.includes(key);
       })
-    : baseNavItems;
+    : baseNavItems
+  ).filter((item) => item.href !== "/shopify" || shopifyCounts?.enabled === true);
   const name     = user?.fullName ?? "…";
 
   return (
@@ -478,10 +498,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#f8fafc"; if (!active) (e.currentTarget as HTMLElement).style.color = "#0f172a"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; if (!active) (e.currentTarget as HTMLElement).style.color = "#64748b"; }}
               >
-                <Icon size={18} strokeWidth={1.75} style={{ flexShrink: 0 }} />
+                <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+                  <Icon size={18} strokeWidth={1.75} />
+                  {item.href === "/shopify" && collapsed && (shopifyCounts?.waiting ?? 0) > 0 && (
+                    <span style={{ position: "absolute", top: "-4px", right: "-6px", minWidth: "8px", height: "8px", borderRadius: "999px", background: "#ee1c25" }} />
+                  )}
+                </span>
                 {!collapsed && (
                   <span style={{ overflowWrap: "normal", wordBreak: "normal", whiteSpace: "normal" }}>
                     {item.label}
+                  </span>
+                )}
+                {!collapsed && item.href === "/shopify" && (shopifyCounts?.waiting ?? 0) > 0 && (
+                  <span style={{
+                    marginLeft: "auto", minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px",
+                    background: "#ee1c25", color: "#fff", fontSize: "10.5px", fontWeight: 700,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {shopifyCounts!.waiting > 99 ? "99+" : shopifyCounts!.waiting}
                   </span>
                 )}
               </Link>

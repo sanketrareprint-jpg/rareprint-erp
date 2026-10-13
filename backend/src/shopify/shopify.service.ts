@@ -1,15 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { createHash } from 'crypto';
 import {
-  ActivityType, LeadSource, LeadStatus, OrderProductionStage, OrderStatus, PaymentMethod,
-  PaymentStatus, PaymentVerificationStatus, Prisma, PrintingType, ProductSides, TaskPriority, TaskStatus,
+  ActivityType, LeadStatus, OrderProductionStage, OrderStatus, PaymentMethod,
+  PaymentStatus, PaymentVerificationStatus, Prisma, PrintingType, ProductSides, TaskStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CrmService } from '../crm/crm.service';
 import {
   MappedCheckout, MappedCustomer, MappedOrder, SHOPIFY_GENERIC_GST_RATE_PCT, SHOPIFY_GENERIC_PRODUCT_SKU,
-  SHOPIFY_LEAD_TAG, describeCart, mapGraphqlCheckout, mapShopifyCheckout, mapShopifyOrder, paymentToRecord,
+  mapGraphqlCheckout, mapShopifyCheckout, mapShopifyOrder, paymentToRecord,
 } from './shopify.mapper';
 
 // Shopify → ERP sync. Webhooks are saved raw first (ShopifyWebhookLog) and
@@ -22,8 +22,6 @@ export const isShopifyEnabled = () => !!process.env.SHOPIFY_WEBHOOK_SECRET?.trim
 // No order within this long of a checkout's last update = abandoned.
 const ABANDON_AFTER_MS = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
-// Webhook log status for a new order saved but not turned into an ERP order.
-const HELD_PREFIX = 'HELD: ';
 const ORDER_TOPICS = ['orders/create', 'orders/updated', 'orders/paid', 'orders/cancelled', 'orders/fulfilled', 'orders/edited', 'orders/partially_fulfilled'];
 const CHECKOUT_TOPICS = ['checkouts/create', 'checkouts/update'];
 const TERMINAL_STATUSES: OrderStatus[] = [OrderStatus.CANCELLED, OrderStatus.DISPATCHED, OrderStatus.DELIVERED];
@@ -42,6 +40,26 @@ const ABANDONED_CHECKOUTS_QUERY = `query AbandonedCheckouts($query: String) {
 }`;
 
 type Tx = Prisma.TransactionClient;
+
+export interface InboxUser { id: string; role: string; fullName?: string | null }
+export interface ApproveLine { productId: string; size: string; gsm: string; paper: string; sides: string }
+export interface ApproveInput {
+  customer: { mode: 'existing'; customerId: string } | { mode: 'new' };
+  lines: { productId?: string | null; size?: string; gsm?: string; paper?: string; sides?: string }[];
+  salesAgentId?: string | null;
+  note?: string | null;
+}
+
+// Shopify module permissions (Sanket, 2026-10-13): Admin/Accounts review and
+// act; sales agents only view, WhatsApp and mark carts contacted.
+export const INBOX_REVIEWER_ROLES = ['ADMIN', 'ACCOUNTS'];
+export const INBOX_VIEWER_ROLES = ['ADMIN', 'ACCOUNTS', 'SALES_AGENT'];
+export function assertInboxReviewer(user: InboxUser) {
+  if (!INBOX_REVIEWER_ROLES.includes(user?.role)) throw new ForbiddenException('Only Admin and Accounts can do this');
+}
+export function assertInboxViewer(user: InboxUser) {
+  if (!INBOX_VIEWER_ROLES.includes(user?.role)) throw new ForbiddenException('No access to the Shopify module');
+}
 
 @Injectable()
 export class ShopifyService {
@@ -103,11 +121,11 @@ export class ShopifyService {
     if (!log) return;
     try {
       const result = log.topic.startsWith('orders/')
-        ? await this.syncOrder(log.payload)
+        ? await this.syncOrder(log.payload, log.shopDomain)
         : await this.syncCheckout(log.payload);
       await this.prisma.shopifyWebhookLog.update({
         where: { id: logId },
-        data: { status: result.startsWith(HELD_PREFIX) ? 'HELD' : 'PROCESSED', result, error: null, processedAt: new Date() },
+        data: { status: 'PROCESSED', result, error: null, processedAt: new Date() },
       });
     } catch (err: any) {
       this.logger.error(`Shopify webhook ${log.topic} ${log.resourceId} failed: ${err?.message}`, err?.stack);
@@ -129,6 +147,8 @@ export class ShopifyService {
           attempts: { lt: MAX_ATTEMPTS },
           OR: [
             { status: 'FAILED' },
+            // Held by the 2026-10-13 stop-gap, before the inbox existed.
+            { status: 'HELD' },
             { status: 'RECEIVED', receivedAt: { lt: new Date(now - 2 * 60 * 1000) } },
             // Stuck mid-run (process restarted while processing).
             { status: 'PROCESSING', receivedAt: { lt: new Date(now - 10 * 60 * 1000) } },
@@ -146,7 +166,7 @@ export class ShopifyService {
 
   // ─── Orders ─────────────────────────────────────────────────────────────
 
-  async syncOrder(payload: any): Promise<string> {
+  async syncOrder(payload: any, shopDomain: string | null = null): Promise<string> {
     const m = mapShopifyOrder(payload);
     return this.prisma.$transaction(async (tx) => {
       // orders/create, /paid and /updated for one order often arrive together;
@@ -160,10 +180,9 @@ export class ShopifyService {
       let orderId: string;
       let result: string;
       if (!existing) {
-        // Held: ERP orders are no longer created automatically (Sanket,
-        // 2026-10-13) — they will be created only on approval in the
-        // Shopify inbox. The raw payload stays in ShopifyWebhookLog.
-        return `${HELD_PREFIX}new Shopify order ${m.shopifyName} saved, awaiting review — no ERP order created`;
+        // Not approved yet: the order lives in the Shopify inbox only. An ERP
+        // order is created solely by approve() (Sanket, 2026-10-13).
+        return this.upsertInbox(tx, m, payload, shopDomain);
       } else {
         const prevUpdatedAt = (existing.shopifyData as any)?.updatedAt;
         if (prevUpdatedAt && m.updatedAt && Date.parse(m.updatedAt) < Date.parse(prevUpdatedAt)) {
@@ -173,32 +192,43 @@ export class ShopifyService {
         result = await this.updateOrder(tx, existing, m);
       }
 
+      await this.refreshInboxDisplay(tx, m, payload);
       const extras = [
         await this.recordPayment(tx, orderId, m),
         await this.applyCancellation(tx, orderId, m),
-        await this.convertCheckouts(tx, orderId, m),
+        await this.convertCheckouts(tx, m, { orderId }),
       ].filter(Boolean);
       return [result, ...extras].join('; ');
     }, { timeout: 30000, maxWait: 15000 });
   }
 
-  private itemsCreateData(lines: MappedOrder['lines'], productIds: string[]) {
-    return lines.map((l, i) => ({
-      productId: productIds[i],
-      quantity: l.quantity,
-      unitPrice: new Prisma.Decimal(l.unitPrice),
-      lineDiscount: new Prisma.Decimal(l.lineDiscount),
-      taxRatePct: new Prisma.Decimal(0),
-      taxAmount: new Prisma.Decimal(0),
-      lineTotal: new Prisma.Decimal(l.lineTotal),
-      productionNotes: l.productionNotes,
-      artworkNotes: l.artworkNotes,
-    }));
+  // Spec line first, in the format resolveItemDetails() parses — Production,
+  // Dispatch and the invoice read Size/GSM/Paper/Sides from it, so an edit made
+  // in the inbox lands on this item only and the catalogue Product is never
+  // changed. Shopify title/variant/SKU follow on the next line.
+  private itemsCreateData(lines: MappedOrder['lines'], review: ApproveLine[]) {
+    return lines.map((l, i) => {
+      const spec = review[i];
+      const specLine = `Size: ${spec.size || '-'}, GSM: ${spec.gsm || '-'}${spec.paper ? `, Paper: ${spec.paper}` : ''}, Sides: ${spec.sides || '-'}`;
+      return {
+        productId: spec.productId,
+        quantity: l.quantity,
+        unitPrice: new Prisma.Decimal(l.unitPrice),
+        lineDiscount: new Prisma.Decimal(l.lineDiscount),
+        taxRatePct: new Prisma.Decimal(0),
+        taxAmount: new Prisma.Decimal(0),
+        lineTotal: new Prisma.Decimal(l.lineTotal),
+        productionNotes: `${specLine}
+${l.productionNotes}`,
+        artworkNotes: l.artworkNotes,
+      };
+    });
   }
 
-  private async createOrder(tx: Tx, m: MappedOrder) {
-    const customer = await this.findOrCreateCustomer(tx, m.customer);
-    const productIds = await this.resolveProducts(tx, m.lines);
+  private async createOrder(tx: Tx, m: MappedOrder, input: {
+    customerId: string; lines: ApproveLine[]; salesAgentId: string | null; note: string | null;
+    approver: InboxUser; inboxNote: string;
+  }) {
     const taken = await tx.order.findUnique({ where: { orderNumber: m.orderNumber }, select: { id: true } });
     const orderNumber = taken ? `${m.orderNumber}-${m.shopifyOrderId.slice(-6)}` : m.orderNumber;
 
@@ -206,7 +236,8 @@ export class ShopifyService {
       data: {
         orderNumber,
         orderDate: m.orderDate,
-        customerId: customer.id,
+        customerId: input.customerId,
+        salesAgentId: input.salesAgentId,
         status: OrderStatus.PENDING_APPROVAL,
         paymentStatus: PaymentStatus.PENDING,
         subtotal: new Prisma.Decimal(m.itemsTotal),
@@ -215,17 +246,20 @@ export class ShopifyService {
         shippingCharge: new Prisma.Decimal(0),
         courierChargeQuoted: m.shippingCharge > 0 ? new Prisma.Decimal(m.shippingCharge) : null,
         grandTotal: new Prisma.Decimal(m.itemsTotal),
-        notes: m.notes,
+        notes: [m.notes, input.inboxNote, input.note ? `Review note: ${input.note}` : null].filter(Boolean).join(' | '),
         leadSource: 'SHOPIFY',
         isTest: m.isTest,
         shopifyOrderId: m.shopifyOrderId,
         shopifyData: m.shopifyData as Prisma.InputJsonValue,
-        items: { create: this.itemsCreateData(m.lines, productIds) },
+        items: { create: this.itemsCreateData(m.lines, input.lines) },
       },
       select: { id: true, orderNumber: true },
     });
     await tx.statusLog.create({
-      data: { orderId: order.id, fromStatus: null, toStatus: OrderStatus.PENDING_APPROVAL, reason: `Order received from Shopify ${m.shopifyName}` },
+      data: {
+        orderId: order.id, fromStatus: null, toStatus: OrderStatus.PENDING_APPROVAL, changedById: input.approver.id,
+        reason: `Shopify ${m.shopifyName} approved in the Shopify inbox by ${input.approver.fullName ?? input.approver.id}; pending accounts`,
+      },
     });
     return order;
   }
@@ -237,36 +271,10 @@ export class ShopifyService {
     const addNotes: string[] = [];
     const actions: string[] = [];
 
-    // Before Accounts approves (nothing invoiced, printed or placed on a sheet)
-    // the ERP order simply follows Shopify. After that, items/amounts are never
-    // changed automatically — the order is flagged for review instead.
-    const itemIds = existing.items.map((i: any) => i.id);
-    const linked = itemIds.length === 0 ? 0 : (await Promise.all([
-      tx.printSheetItem.count({ where: { orderItemId: { in: itemIds } } }),
-      tx.jobWork.count({ where: { orderItemId: { in: itemIds } } }),
-      tx.itemStageLog.count({ where: { orderItemId: { in: itemIds } } }),
-      tx.commissionOverride.count({ where: { orderItemId: { in: itemIds } } }),
-    ])).reduce((a, b) => a + b, 0);
-    const editable = existing.status === OrderStatus.PENDING_APPROVAL
-      && !existing.invoice
-      && !existing.cancellationRequestedAt
-      && linked === 0
-      && existing.items.every((i: any) => i.itemProductionStage === OrderProductionStage.NOT_PRINTED && !i.cancelledAt);
-
-    if (editable) {
-      const customer = await this.findOrCreateCustomer(tx, m.customer);
-      if (customer.id !== existing.customerId) data.customer = { connect: { id: customer.id } };
-      if (prev.contentHash !== m.contentHash) {
-        const productIds = await this.resolveProducts(tx, m.lines);
-        await tx.orderItem.deleteMany({ where: { orderId: existing.id } });
-        await tx.orderItem.createMany({ data: this.itemsCreateData(m.lines, productIds).map((row) => ({ ...row, orderId: existing.id })) });
-        data.subtotal = new Prisma.Decimal(m.itemsTotal);
-        data.grandTotal = new Prisma.Decimal(m.itemsTotal);
-        data.courierChargeQuoted = m.shippingCharge > 0 ? new Prisma.Decimal(m.shippingCharge) : null;
-        addNotes.push(`Updated from Shopify edit ${new Date().toISOString().slice(0, 10)} (items now ₹${m.itemsTotal.toFixed(2)})`);
-        actions.push('items replaced from Shopify edit');
-      }
-    } else if (prev.contentHash !== m.contentHash && prev.editFlaggedHash !== m.contentHash) {
+    // The ERP order exists only because a reviewer approved it in the inbox
+    // (customer, products and specs chosen by hand), so a later Shopify edit
+    // never changes its items/amounts — it is flagged for review instead.
+    if (prev.contentHash !== m.contentHash && prev.editFlaggedHash !== m.contentHash) {
       addNotes.push(`⚠ Edited on Shopify ${new Date().toISOString().slice(0, 10)} after approval — items/amounts NOT changed in ERP; review Shopify ${m.shopifyName} (Shopify total now ₹${m.totalPrice.toFixed(2)})`);
       shopifyData.editFlaggedHash = m.contentHash;
       actions.push('edit flagged for review');
@@ -286,21 +294,30 @@ export class ShopifyService {
     return `Updated ${existing.orderNumber}${actions.length ? ` (${actions.join(', ')})` : ''}`;
   }
 
-  private async findOrCreateCustomer(tx: Tx, c: MappedCustomer) {
-    const existing = c.phone
-      ? await tx.customer.findFirst({
-          where: { OR: [{ phone: c.phone }, { phone2: c.phone }, { phone: { endsWith: c.phone } }, { phone2: { endsWith: c.phone } }] },
-          orderBy: { createdAt: 'asc' },
-        })
-      : c.email
-        ? await tx.customer.findFirst({ where: { email: { equals: c.email, mode: 'insensitive' } }, orderBy: { createdAt: 'asc' } })
-        : null;
+  // Suggested existing customer: phone (last 10 digits) first, then email.
+  async suggestCustomers(db: Tx | PrismaService, c: Pick<MappedCustomer, 'phone' | 'email'>) {
+    const or: Prisma.CustomerWhereInput[] = [];
+    if (c.phone) or.push({ phone: { endsWith: c.phone } }, { phone2: { endsWith: c.phone } });
+    if (c.email) or.push({ email: { equals: c.email, mode: 'insensitive' } });
+    if (!or.length) return [];
+    const rows = await db.customer.findMany({
+      where: { OR: or },
+      orderBy: { createdAt: 'asc' },
+      take: 5,
+      select: { id: true, customerCode: true, businessName: true, contactPerson: true, phone: true, phone2: true, email: true, city: true, state: true, gstNumber: true },
+    });
+    return rows.map((r) => ({
+      ...r,
+      matchedBy: c.phone && [r.phone, r.phone2].some((p) => p?.endsWith(c.phone!)) ? 'phone' : 'email',
+    }));
+  }
 
+  // Same rule as OrdersService.create: an existing customer's name is never
+  // overwritten (every past invoice reads it); contact/address details are,
+  // and state must follow this order's shipping state for GST.
+  private customerDetails(c: MappedCustomer) {
     const upper = (v: string | null) => (v ? v.toUpperCase() : null);
-    // Same as OrdersService.create: an existing customer's name is never
-    // overwritten (every past invoice reads it); contact/address details are,
-    // and state must follow this order's shipping state for GST.
-    const details = {
+    return {
       ...(c.email ? { email: c.email } : {}),
       ...(c.shippingAddress ? { shippingAddress: c.shippingAddress } : {}),
       ...(c.billingAddress ? { billingAddress: c.billingAddress } : {}),
@@ -309,37 +326,37 @@ export class ShopifyService {
       ...(c.pincode ? { pincode: c.pincode } : {}),
       ...(c.gstin ? { gstNumber: c.gstin } : {}),
     };
-    if (existing) return tx.customer.update({ where: { id: existing.id }, data: details });
+  }
 
-    const name = upper(c.company ?? c.name)!;
+  private async createCustomer(tx: Tx, c: MappedCustomer) {
+    const upper = (v: string | null) => (v ? v.toUpperCase() : null);
     return tx.customer.create({
       data: {
         customerCode: `SHOP-CUST-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-        businessName: name,
+        businessName: upper(c.company ?? c.name)!,
         contactPerson: upper(c.name),
         phone: c.phone,
-        ...details,
+        ...this.customerDetails(c),
       },
     });
   }
 
-  // SKU match against the ERP catalogue, else the one generic "Shopify Item"
-  // product (GST 18%); the real title/variant/properties live on the item.
-  private async resolveProducts(tx: Tx, lines: MappedOrder['lines']): Promise<string[]> {
-    const ids: string[] = [];
-    let genericId: string | null = null;
+  // Pre-fill for the review screen: SKU match against the ERP catalogue, else
+  // null = the one generic "Shopify Item" product (GST 18%).
+  async suggestProducts(lines: MappedOrder['lines']) {
+    const out: ({ id: string; name: string; sku: string; sizeInches: string; gsm: number; paperType: string | null; sides: string } | null)[] = [];
     for (const line of lines) {
-      const match = line.sku
-        ? await tx.product.findFirst({ where: { isActive: true, sku: { equals: line.sku, mode: 'insensitive' } }, select: { id: true } })
-        : null;
-      if (match) { ids.push(match.id); continue; }
-      genericId ??= await this.genericProductId(tx);
-      ids.push(genericId);
+      out.push(line.sku
+        ? await this.prisma.product.findFirst({
+            where: { isActive: true, sku: { equals: line.sku, mode: 'insensitive' } },
+            select: { id: true, name: true, sku: true, sizeInches: true, gsm: true, paperType: true, sides: true },
+          })
+        : null);
     }
-    return ids;
+    return out;
   }
 
-  private async genericProductId(tx: Tx): Promise<string> {
+  async genericProductId(tx: Tx): Promise<string> {
     const existing = await tx.product.findUnique({ where: { sku: SHOPIFY_GENERIC_PRODUCT_SKU }, select: { id: true } });
     if (existing) return existing.id;
     const category = await tx.productCategory.upsert({
@@ -437,24 +454,38 @@ export class ShopifyService {
   }
 
   // Marks the order's own checkout CONVERTED, plus any earlier ABANDONED
-  // checkout from the same phone/email — and their follow-up lead (WON) /
-  // task (DONE).
-  private async convertCheckouts(tx: Tx, orderId: string, m: MappedOrder): Promise<string | null> {
+  // checkout from the same phone/email. With an ERP order (approval, or an
+  // update to an approved order) the cart's lead becomes WON / task DONE.
+  private async convertCheckouts(tx: Tx, m: MappedOrder, ids: { inboxOrderId?: string | null; orderId?: string | null }): Promise<string | null> {
     const or: Prisma.ShopifyCheckoutWhereInput[] = [];
     if (m.checkoutToken) or.push({ token: m.checkoutToken });
     if (m.customer.phone) or.push({ status: 'ABANDONED', phone: m.customer.phone, lastActivityAt: { lte: m.orderDate } });
     if (m.customer.email) or.push({ status: 'ABANDONED', email: { equals: m.customer.email, mode: 'insensitive' }, lastActivityAt: { lte: m.orderDate } });
     if (!or.length) return null;
-    const rows = await tx.shopifyCheckout.findMany({ where: { status: { not: 'CONVERTED' }, OR: or } });
+    const rows = await tx.shopifyCheckout.findMany({
+      where: {
+        OR: or,
+        AND: [{ OR: [{ status: { not: 'CONVERTED' } }, ...(ids.inboxOrderId && ids.orderId ? [{ inboxOrderId: ids.inboxOrderId, orderId: null }] : [])] }],
+      },
+    });
     if (!rows.length) return null;
 
-    const order = await tx.order.findUnique({ where: { id: orderId }, select: { orderNumber: true } });
+    const order = ids.orderId ? await tx.order.findUnique({ where: { id: ids.orderId }, select: { orderNumber: true } }) : null;
     for (const row of rows) {
-      await tx.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date(), orderId } });
+      await tx.shopifyCheckout.update({
+        where: { id: row.id },
+        data: {
+          status: 'CONVERTED',
+          convertedAt: row.convertedAt ?? new Date(),
+          ...(ids.inboxOrderId ? { inboxOrderId: ids.inboxOrderId } : {}),
+          ...(ids.orderId ? { orderId: ids.orderId } : {}),
+        },
+      });
+      if (!ids.orderId) continue;
       if (row.leadId) {
         const lead = await tx.lead.findUnique({ where: { id: row.leadId }, select: { id: true, status: true, agentId: true } });
         if (lead && lead.status !== LeadStatus.WON) {
-          await tx.lead.update({ where: { id: lead.id }, data: { status: LeadStatus.WON, convertedOrderId: orderId } });
+          await tx.lead.update({ where: { id: lead.id }, data: { status: LeadStatus.WON, convertedOrderId: ids.orderId } });
           await tx.leadActivity.create({
             data: { leadId: lead.id, type: ActivityType.NOTE_ADDED, description: `Converted: placed Shopify order ${m.shopifyName} (ERP order ${order?.orderNumber})`, createdById: lead.agentId },
           });
@@ -468,6 +499,145 @@ export class ShopifyService {
       }
     }
     return `${rows.length} checkout(s) marked converted`;
+  }
+
+  // ─── Shopify inbox (orders waiting for review) ──────────────────────────
+
+  private inboxColumns(m: MappedOrder, payload: any) {
+    return {
+      shopifyName: m.shopifyName,
+      isTest: m.isTest,
+      orderDate: m.orderDate,
+      customerName: m.customer.name,
+      phone: m.customer.phone,
+      email: m.customer.email,
+      city: m.customer.city,
+      state: m.customer.state,
+      itemsSummary: m.lines.map((l) => `${l.quantity} × ${l.title}${l.variantTitle ? ` (${l.variantTitle})` : ''}`).join(', ').slice(0, 500) || null,
+      totalPrice: new Prisma.Decimal(m.totalPrice),
+      gateway: m.gateway,
+      financialStatus: m.financialStatus,
+      cancelledAt: m.cancelledAt ? new Date(m.cancelledAt) : null,
+      shopifyUpdatedAt: m.updatedAt,
+      payload: payload as Prisma.InputJsonValue,
+    };
+  }
+
+  // Not yet approved → the inbox row follows Shopify fully (edits, payment,
+  // cancellation). Cancelled on Shopify → CANCELLED, which can't be approved.
+  // A REJECTED row keeps its status but still stores the latest payload.
+  private async upsertInbox(tx: Tx, m: MappedOrder, payload: any, shopDomain: string | null): Promise<string> {
+    const row = await tx.shopifyInboxOrder.findUnique({ where: { shopifyOrderId: m.shopifyOrderId } });
+    if (!row) {
+      const created = await tx.shopifyInboxOrder.create({
+        data: { shopifyOrderId: m.shopifyOrderId, shopDomain, status: m.cancelledAt ? 'CANCELLED' : 'NEW', ...this.inboxColumns(m, payload) },
+      });
+      const converted = await this.convertCheckouts(tx, m, { inboxOrderId: created.id });
+      return [`Saved to Shopify inbox (${created.status}) — no ERP order until approved`, converted].filter(Boolean).join('; ');
+    }
+    if (row.shopifyUpdatedAt && m.updatedAt && Date.parse(m.updatedAt) < Date.parse(row.shopifyUpdatedAt)) {
+      return `Skipped: older than the inbox copy of ${m.shopifyName}`;
+    }
+    const status = row.status === 'NEW' || row.status === 'CANCELLED' ? (m.cancelledAt ? 'CANCELLED' : 'NEW') : row.status;
+    await tx.shopifyInboxOrder.update({
+      where: { id: row.id },
+      data: { status, ...(shopDomain && !row.shopDomain ? { shopDomain } : {}), ...this.inboxColumns(m, payload) },
+    });
+    const converted = await this.convertCheckouts(tx, m, { inboxOrderId: row.id });
+    return [`Inbox ${m.shopifyName} updated (${status})`, converted].filter(Boolean).join('; ');
+  }
+
+  // Approved order: keep the inbox row's list columns current (display only).
+  private async refreshInboxDisplay(tx: Tx, m: MappedOrder, payload: any) {
+    await tx.shopifyInboxOrder.updateMany({
+      where: { shopifyOrderId: m.shopifyOrderId, status: 'APPROVED' },
+      data: this.inboxColumns(m, payload),
+    });
+  }
+
+  async approve(inboxId: string, user: InboxUser, input: ApproveInput) {
+    assertInboxReviewer(user);
+    if (!Array.isArray(input?.lines)) throw new BadRequestException('lines are required');
+    const salesAgentId = input.salesAgentId?.trim() || null;
+    const note = input.note?.trim() || null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.shopifyInboxOrder.findUnique({ where: { id: inboxId }, select: { shopifyOrderId: true } });
+      if (!row) throw new NotFoundException('Shopify inbox order not found');
+      // Same lock as syncOrder, so a webhook can't change it mid-approval.
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `shopify-order:${row.shopifyOrderId}`);
+      const fresh = (await tx.shopifyInboxOrder.findUnique({ where: { id: inboxId } }))!;
+      if (fresh.status !== 'NEW') {
+        throw new BadRequestException(fresh.status === 'CANCELLED'
+          ? 'This order was cancelled on Shopify and cannot be approved'
+          : `This order is already ${fresh.status.toLowerCase()}`);
+      }
+      if (await tx.order.findUnique({ where: { shopifyOrderId: fresh.shopifyOrderId }, select: { id: true } })) {
+        throw new BadRequestException('An ERP order already exists for this Shopify order');
+      }
+
+      const m = mapShopifyOrder(fresh.payload);
+      if (input.lines.length !== m.lines.length) {
+        throw new BadRequestException(`Expected ${m.lines.length} line(s) — the Shopify order changed; reload and review again`);
+      }
+
+      // Products: chosen id, or empty = the generic "Shopify Item".
+      let genericId: string | null = null;
+      const lines: ApproveLine[] = [];
+      for (const [i, l] of input.lines.entries()) {
+        let productId = l?.productId?.trim() || '';
+        if (!productId) productId = genericId ??= await this.genericProductId(tx);
+        const product = await tx.product.findFirst({ where: { id: productId, isActive: true }, select: { id: true } });
+        if (!product) throw new BadRequestException(`Line ${i + 1}: product not found or inactive`);
+        // Commas/newlines/pipes would break the spec line's parser.
+        const clean = (v: any) => String(v ?? '').replace(/[,\n|]/g, ' ').trim().slice(0, 60);
+        lines.push({ productId, size: clean(l.size), gsm: clean(l.gsm), paper: clean(l.paper), sides: clean(l.sides) });
+      }
+
+      if (salesAgentId) {
+        const agent = await tx.user.findFirst({ where: { id: salesAgentId, isActive: true, role: { in: ['SALES_AGENT', 'ADMIN'] } }, select: { id: true } });
+        if (!agent) throw new BadRequestException('Sales agent not found or inactive');
+      }
+
+      let customerId: string;
+      if (input.customer?.mode === 'existing') {
+        const existing = await tx.customer.findUnique({ where: { id: String(input.customer.customerId ?? '') }, select: { id: true } });
+        if (!existing) throw new BadRequestException('Selected customer not found');
+        await tx.customer.update({ where: { id: existing.id }, data: this.customerDetails(m.customer) });
+        customerId = existing.id;
+      } else if (input.customer?.mode === 'new') {
+        customerId = (await this.createCustomer(tx, m.customer)).id;
+      } else {
+        throw new BadRequestException('Choose an existing customer or create a new one');
+      }
+
+      const approvedAt = new Date();
+      const order = await this.createOrder(tx, m, {
+        customerId, lines, salesAgentId, note, approver: user,
+        inboxNote: `Approved in Shopify inbox by ${user.fullName ?? user.id} ${approvedAt.toISOString().slice(0, 10)}`,
+      });
+      const extras = [
+        await this.recordPayment(tx, order.id, m),
+        await this.convertCheckouts(tx, m, { inboxOrderId: fresh.id, orderId: order.id }),
+      ].filter(Boolean);
+      await tx.shopifyInboxOrder.update({
+        where: { id: fresh.id },
+        data: { status: 'APPROVED', orderId: order.id, approvedById: user.id, approvedByName: user.fullName ?? null, approvedAt },
+      });
+      return { ok: true, orderId: order.id, orderNumber: order.orderNumber, notes: extras };
+    }, { timeout: 30000, maxWait: 15000 });
+  }
+
+  async reject(inboxId: string, user: InboxUser, reason: string) {
+    assertInboxReviewer(user);
+    const why = reason?.trim();
+    if (!why) throw new BadRequestException('A reason is required to reject');
+    const res = await this.prisma.shopifyInboxOrder.updateMany({
+      where: { id: inboxId, status: { in: ['NEW', 'CANCELLED'] } },
+      data: { status: 'REJECTED', rejectedById: user.id, rejectedByName: user.fullName ?? null, rejectedAt: new Date(), rejectReason: why.slice(0, 1000) },
+    });
+    if (res.count === 0) throw new BadRequestException('Only new or cancelled inbox orders can be rejected');
+    return { ok: true };
   }
 
   // ─── Checkouts / abandoned carts ────────────────────────────────────────
@@ -486,12 +656,12 @@ export class ShopifyService {
 
     // The order webhook can arrive before the checkout's last update.
     if (row.status !== 'CONVERTED') {
-      const order = await this.prisma.order.findFirst({
-        where: { shopifyData: { path: ['checkoutToken'], equals: c.token } },
-        select: { id: true },
+      const inbox = await this.prisma.shopifyInboxOrder.findFirst({
+        where: { payload: { path: ['checkout_token'], equals: c.token } },
+        select: { id: true, orderId: true },
       });
-      if (order) {
-        await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date(), orderId: order.id } });
+      if (inbox) {
+        await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date(), inboxOrderId: inbox.id, orderId: inbox.orderId } });
         return `Checkout ${c.token} saved and marked converted`;
       }
     }
@@ -514,6 +684,8 @@ export class ShopifyService {
     };
   }
 
+  // OPEN → ABANDONED after 60 min with no order. No automatic lead/task
+  // (Sanket, 2026-10-13) — the team acts on it from the inbox.
   @Cron('0 */5 * * * *')
   async markAbandoned() {
     if (!isShopifyEnabled() || this.abandoning) return;
@@ -526,33 +698,22 @@ export class ShopifyService {
       });
       for (const row of due) {
         // Its own order, or a later order by the same customer from another cart.
-        const sameCustomer: Prisma.CustomerWhereInput[] = [];
-        if (row.phone) sameCustomer.push({ phone: { endsWith: row.phone } }, { phone2: { endsWith: row.phone } });
+        const sameCustomer: Prisma.ShopifyInboxOrderWhereInput[] = [];
+        if (row.phone) sameCustomer.push({ phone: row.phone });
         if (row.email) sameCustomer.push({ email: { equals: row.email, mode: 'insensitive' } });
-        const order = await this.prisma.order.findFirst({
+        const inbox = await this.prisma.shopifyInboxOrder.findFirst({
           where: {
             OR: [
-              { shopifyData: { path: ['checkoutToken'], equals: row.token } },
-              ...(sameCustomer.length ? [{ shopifyOrderId: { not: null }, orderDate: { gte: row.createdAt }, customer: { OR: sameCustomer } }] : []),
+              { payload: { path: ['checkout_token'], equals: row.token } },
+              ...(sameCustomer.length ? [{ orderDate: { gte: row.createdAt }, OR: sameCustomer }] : []),
             ],
           },
-          select: { id: true },
+          select: { id: true, orderId: true },
         });
-        if (order) {
-          await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date(), orderId: order.id } });
+        if (inbox) {
+          await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date(), inboxOrderId: inbox.id, orderId: inbox.orderId } });
           continue;
         }
-        // An order that is held for review (no ERP order yet) also converts it.
-        const heldOrder = await this.prisma.shopifyWebhookLog.findFirst({
-          where: { topic: { startsWith: 'orders/' }, payload: { path: ['checkout_token'], equals: row.token } },
-          select: { id: true },
-        });
-        if (heldOrder) {
-          await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { status: 'CONVERTED', convertedAt: new Date() } });
-          continue;
-        }
-        // No automatic lead/task any more (Sanket, 2026-10-13) — the team
-        // creates one by hand from the Shopify inbox.
         await this.prisma.shopifyCheckout.updateMany({
           where: { id: row.id, status: 'OPEN' },
           data: { status: 'ABANDONED', abandonedAt: new Date() },
@@ -561,68 +722,6 @@ export class ShopifyService {
     } finally {
       this.abandoning = false;
     }
-  }
-
-  // Phone → Lead (an open lead for the same phone gets a note instead of a
-  // duplicate). Email only → Task (Lead.phone is required and the dialer
-  // calls leads). Neither → saved, no follow-up.
-  private async createFollowUp(row: {
-    token: string; customerName: string | null; phone: string | null; email: string | null;
-    cartItems: Prisma.JsonValue; cartValue: Prisma.Decimal; recoveryUrl: string | null;
-  }): Promise<{ leadId?: string; taskId?: string }> {
-    if (!row.phone && !row.email) return {};
-    const cartItems = (Array.isArray(row.cartItems) ? row.cartItems : []) as unknown as MappedCheckout['cartItems'];
-    const description = describeCart({ cartItems, cartValue: Number(row.cartValue), recoveryUrl: row.recoveryUrl });
-
-    if (row.phone) {
-      const open = await this.prisma.lead.findFirst({
-        where: { phone: { endsWith: row.phone }, status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
-        orderBy: { updatedAt: 'desc' },
-      });
-      if (open) {
-        await this.prisma.lead.update({
-          where: { id: open.id },
-          data: { tags: open.tags.includes(SHOPIFY_LEAD_TAG) ? open.tags : [...open.tags, SHOPIFY_LEAD_TAG] },
-        });
-        await this.prisma.leadActivity.create({
-          data: { leadId: open.id, type: ActivityType.NOTE_ADDED, description, createdById: open.agentId },
-        });
-        return { leadId: open.id };
-      }
-      const agent = await this.crm.getNextAgent();
-      const lead = await this.prisma.lead.create({
-        data: {
-          name: row.customerName ?? `Shopify cart ${row.phone.slice(-4)}`,
-          phone: row.phone,
-          email: row.email,
-          productInterest: cartItems.map((i) => i.title).join(', ').slice(0, 250) || null,
-          estimatedQty: cartItems.reduce((s, i) => s + (i.quantity || 0), 0) || null,
-          estimatedValue: Number(row.cartValue) || null,
-          notes: description,
-          tags: [SHOPIFY_LEAD_TAG],
-          source: LeadSource.ONLINE_FORM,
-          status: LeadStatus.NEW,
-          agentId: agent.id,
-        },
-      });
-      await this.prisma.leadActivity.create({
-        data: { leadId: lead.id, type: ActivityType.NOTE_ADDED, description: `Lead created from an abandoned Shopify checkout and assigned to ${agent.fullName}`, createdById: agent.id },
-      });
-      return { leadId: lead.id };
-    }
-
-    const agent = await this.crm.getNextAgent();
-    const task = await this.prisma.task.create({
-      data: {
-        title: `Email follow-up: abandoned Shopify cart — ${row.customerName ?? row.email}`.slice(0, 200),
-        description: `${description}\nEmail: ${row.email} (no phone given)`,
-        priority: TaskPriority.HIGH,
-        dueDate: new Date(),
-        createdById: agent.id,
-        assignedToId: agent.id,
-      },
-    });
-    return { taskId: task.id };
   }
 
   // Backup for missed checkout webhooks: pull recent abandoned checkouts from
