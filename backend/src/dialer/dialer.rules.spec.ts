@@ -28,6 +28,9 @@
  *   (through any Lead/contact row with that phone) answered it: a conclusive
  *   call after it fell due, or Not interested after it was created. Busy /
  *   not answered never skip it; a follow-up a call created survives that call.
+ * RULE 14 — Follow-ups: tried at most once a day (busy / not answered retry
+ *   tomorrow, a callback for later today still rings); a NEW lead never called
+ *   is a new lead, not a follow-up.
  * RULE 13 — New / Reserved leads can be narrowed to the leads added on one
  *   India-time day (every import that day), and are dialed newest day first.
  *
@@ -44,6 +47,8 @@ import {
   parseDeskResponse,
   parseDialerList,
   parseImportedOn,
+  isFollowUpTriedToday,
+  isNeverCalledNewLead,
   IMPORT_DATE_LISTS,
   parseDialerSettings,
   agentStatsSince,
@@ -250,6 +255,31 @@ describe('dialer rules — dial lists (RULE 8)', () => {
     expect(parseDialerList('RESERVED_LEADS')).toBe('RESERVED_LEADS');
     expect(parseDialerList('busy')).toBeNull();
     expect(parseDialerList('WON')).toBeNull();
+  });
+});
+
+describe('dialer rules — follow-ups are tried once a day; uncalled new leads are not follow-ups (RULE 14)', () => {
+  const todayStart = new Date('2026-10-12T18:30:00Z'); // 13 Oct 00:00 IST
+  const at = (iso: string) => new Date(iso);
+
+  it('a busy / not-answered call today after the follow-up fell due = tried today', () => {
+    const fu = { scheduledAt: at('2026-10-12T04:00:00Z') }; // overdue from yesterday
+    expect(isFollowUpTriedToday(fu, { startedAt: at('2026-10-13T05:00:00Z') }, todayStart)).toBe(true);
+    // a call yesterday doesn't stop it today
+    expect(isFollowUpTriedToday(fu, { startedAt: at('2026-10-12T10:00:00Z') }, todayStart)).toBe(false);
+  });
+
+  it('a callback set for later today is not tried by a call made before its time', () => {
+    const fu = { scheduledAt: at('2026-10-13T09:30:00Z') }; // 3 PM IST today
+    expect(isFollowUpTriedToday(fu, { startedAt: at('2026-10-13T05:30:00Z') }, todayStart)).toBe(false);
+    expect(isFollowUpTriedToday(fu, { startedAt: at('2026-10-13T09:31:00Z') }, todayStart)).toBe(true);
+  });
+
+  it('only a NEW lead that was never called is skipped as a follow-up', () => {
+    expect(isNeverCalledNewLead(LeadStatus.NEW, false)).toBe(true);
+    expect(isNeverCalledNewLead(LeadStatus.NEW, true)).toBe(false);
+    expect(isNeverCalledNewLead(LeadStatus.CONTACTED, false)).toBe(false);
+    expect(isNeverCalledNewLead(LeadStatus.LOST, false)).toBe(false);
   });
 });
 

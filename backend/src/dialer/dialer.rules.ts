@@ -129,6 +129,31 @@ export function isFollowUpAnsweredByCall(
   return call.outcome === DialerOutcome.NOT_INTERESTED && call.createdAt > followUp.createdAt;
 }
 
+/**
+ * Whether a pending follow-up was already tried today: the number was dialed
+ * today (India time) after the follow-up fell due, with any outcome. Busy /
+ * not answered leave the follow-up open for tomorrow, but it isn't offered
+ * again today — otherwise it came back every RECENT_CALL_SKIP_MINUTES all day.
+ * A callback set for later today isn't tried by a call made before its time.
+ */
+export function isFollowUpTriedToday(
+  followUp: { scheduledAt: Date },
+  call: { startedAt: Date },
+  todayStart: Date,
+): boolean {
+  return call.startedAt >= todayStart && call.startedAt >= followUp.scheduledAt;
+}
+
+/**
+ * A follow-up on a lead that is still NEW and was never called (the CSV
+ * import's automatic Day 1/3/7/14/30 follow-ups) isn't a follow-up yet: the
+ * lead is dialed as a new lead (newest import first) instead of jumping ahead
+ * of today's new leads as "follow-up due".
+ */
+export function isNeverCalledNewLead(status: LeadStatus, everCalled: boolean): boolean {
+  return status === LeadStatus.NEW && !everCalled;
+}
+
 /** NOT_INTERESTED gets the same 30-day recycle check as CrmService.updateStatus(LOST). WRONG_NUMBER never does. */
 export function wantsRecycleFollowUp(outcome: DialerOutcome): boolean {
   return outcome === DialerOutcome.NOT_INTERESTED;

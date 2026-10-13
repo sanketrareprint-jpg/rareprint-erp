@@ -12,6 +12,8 @@
 //   4. OLD_CALLBACK   — follow-ups that were due before today (most recent first)
 //   5. RESERVED_LEAD  — the agent's reserved leads (CRM import "Reserved leads"),
 //                       same rule as FRESH_LEAD, only once everything above is done
+// Follow-up tiers (1, 4) skip follow-ups already tried today (busy / not
+// answered retry tomorrow) and NEW leads never called (those are new leads).
 // and always skips: numbers marked WRONG_NUMBER (forever), numbers dialed in
 // the last RECENT_CALL_SKIP_MINUTES by anyone, and numbers another agent is
 // currently dialing (DialerLock).
@@ -40,6 +42,8 @@ import {
   agentStatsSince,
   isDeskResponseCurrent,
   isFollowUpAnsweredByCall,
+  isFollowUpTriedToday,
+  isNeverCalledNewLead,
   isEndCallRequestCurrent,
   describeReplyProducts,
   NI_LIST_REASONS,
@@ -137,11 +141,11 @@ export class DialerService {
     await this.prisma.dialerLock.deleteMany({ where: { agentId } });
 
     type Tier = (skip: number) => Promise<{ items: Candidate[]; more: boolean }>;
-    const dueToday: Tier = (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip);
+    const dueToday: Tier = (skip) => this.followUpCandidates('FOLLOW_UP_DUE', queueAgentId, { gte: todayStart, lte: now }, 'asc', skip, todayStart);
     const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, false, addedOn);
     const reservedLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, true, addedOn);
     const notContacted: Tier = (skip) => this.notContactedCandidates(queueAgentId, skip);
-    const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip);
+    const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip, todayStart);
     const tiersByList: Record<DialerList, Tier[]> = {
       ALL: [dueToday, freshLeads, notContacted, olderFollowUps, reservedLeads],
       NEW_LEADS: [freshLeads, reservedLeads],
@@ -167,7 +171,8 @@ export class DialerService {
     for (const tier of tiers) {
       for (let page = 0; page < MAX_PAGES; page++) {
         const { items, more } = await tier(page * PAGE_SIZE);
-        const fresh = items.filter((c) => c.phone.length >= 6 && !seen.has(c.phone));
+        // Numbers cut short in an old CSV import (8–9 digits) can't be dialed.
+        const fresh = items.filter((c) => c.phone.length === 10 && !seen.has(c.phone));
         fresh.forEach((c) => seen.add(c.phone));
         if (fresh.length) {
           const blocked = await this.blockedPhones(fresh.map((c) => c.phone), agentId, now);
@@ -199,6 +204,7 @@ export class DialerService {
     window: Prisma.DateTimeFilter,
     order: 'asc' | 'desc',
     skip: number,
+    todayStart: Date,
   ) {
     const [leadFollowUps, contactFollowUps] = await Promise.all([
       this.prisma.leadFollowUp.findMany({
@@ -206,7 +212,7 @@ export class DialerService {
         orderBy: { scheduledAt: order },
         skip,
         take: PAGE_SIZE,
-        select: { id: true, scheduledAt: true, createdAt: true, lead: { select: { id: true, phone: true } } },
+        select: { id: true, scheduledAt: true, createdAt: true, lead: { select: { id: true, phone: true, status: true } } },
       }),
       this.prisma.importedContactFollowUp.findMany({
         where: {
@@ -221,23 +227,39 @@ export class DialerService {
       }),
     ]);
 
-    // Follow-ups already answered by a call to the same number (through any
-    // record with that phone) are left out — see isFollowUpAnsweredByCall.
+    // Left out (calls through any record with that phone count):
+    //  - follow-ups already answered by a call — isFollowUpAnsweredByCall
+    //  - follow-ups already tried today — isFollowUpTriedToday
+    //  - NEW leads never called — isNeverCalledNewLead (they're new leads, not follow-ups)
     const phones = [
       ...leadFollowUps.map((f) => normalizeDialPhone(f.lead.phone)),
       ...contactFollowUps.map((f) => normalizeDialPhone(f.contact.phone)),
     ];
-    const calls = phones.length
-      ? await this.prisma.dialerCall.findMany({
-          where: { phone: { in: [...new Set(phones)] }, outcome: { notIn: [DialerOutcome.BUSY, DialerOutcome.NOT_ANSWERED] } },
-          select: { phone: true, outcome: true, startedAt: true, createdAt: true },
-        })
-      : [];
+    const newLeadPhones = [...new Set(leadFollowUps.filter((f) => f.lead.status === LeadStatus.NEW).map((f) => f.lead.phone))];
+    const [calls, crmCalls] = await Promise.all([
+      phones.length
+        ? this.prisma.dialerCall.findMany({
+            where: { phone: { in: [...new Set(phones)] } },
+            select: { phone: true, outcome: true, startedAt: true, createdAt: true },
+          })
+        : Promise.resolve([] as Array<{ phone: string; outcome: DialerOutcome; startedAt: Date; createdAt: Date }>),
+      // Calls logged from the CRM (same check as freshLeadCandidates).
+      newLeadPhones.length
+        ? this.prisma.leadActivity.findMany({
+            where: { type: { in: CALL_ACTIVITY_TYPES }, lead: { phone: { in: newLeadPhones } } },
+            select: { lead: { select: { phone: true } } },
+          })
+        : Promise.resolve([] as Array<{ lead: { phone: string } }>),
+    ]);
+    const crmCalledPhones = new Set(crmCalls.map((a) => a.lead.phone));
     const isOpen = (phone: string, followUp: { scheduledAt: Date; createdAt: Date }) =>
-      !calls.some((call) => call.phone === phone && isFollowUpAnsweredByCall(followUp, call));
+      !calls.some((call) => call.phone === phone && (isFollowUpAnsweredByCall(followUp, call) || isFollowUpTriedToday(followUp, call, todayStart)));
+    const everCalled = (lead: { phone: string }) =>
+      crmCalledPhones.has(lead.phone) || calls.some((call) => call.phone === normalizeDialPhone(lead.phone));
 
     const items: Candidate[] = [
       ...leadFollowUps
+        .filter((f) => !isNeverCalledNewLead(f.lead.status, everCalled(f.lead)))
         .filter((f) => isOpen(normalizeDialPhone(f.lead.phone), f))
         .map((f) => ({
           source,

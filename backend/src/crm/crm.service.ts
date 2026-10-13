@@ -319,6 +319,12 @@ export class CrmService {
 
       try {
         const phone = String(row.phone).replace(/\D/g, '').slice(-10);
+        // A number cut short in the file (Excel dropping digits) can't be dialed.
+        if (phone.length !== 10) {
+          results.errors.push(`Row ${i + 2}: phone must have 10 digits`);
+          results.skipped++;
+          continue;
+        }
         if (agentPhones.has(phone)) {
           results.alreadyExists++;
           continue;
