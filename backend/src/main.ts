@@ -35,7 +35,14 @@ async function bootstrap() {
   // AllExceptionsFilter is the outermost catch-all; PrismaExceptionFilter
   // handles known Prisma codes with more specific messages.
   app.useGlobalFilters(new AllExceptionsFilter(), new PrismaExceptionFilter());
-  app.use(require('express').json({ limit: '5mb' }));
+  app.use(require('express').json({
+    limit: '5mb',
+    // Shopify signs the exact request bytes (X-Shopify-Hmac-Sha256), so its
+    // webhook routes need the unparsed body too. Kept for /shopify/ only.
+    verify: (req: any, _res: any, buf: Buffer) => {
+      if (req.originalUrl?.startsWith('/shopify/')) req.rawBody = buf;
+    },
+  }));
   app.use(require('express').urlencoded({ limit: '5mb', extended: true }));
   app.useGlobalPipes(
     new ValidationPipe({

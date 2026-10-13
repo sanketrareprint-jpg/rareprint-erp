@@ -10,6 +10,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
   imports: [PrismaModule, WhatsAppModule],
   controllers: [CrmController, CrmWebhookController],
   providers: [CrmService],
+  exports: [CrmService],
 })
 export class CrmModule {}
 

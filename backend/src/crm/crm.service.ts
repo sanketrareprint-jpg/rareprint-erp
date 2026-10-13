@@ -464,7 +464,8 @@ export class CrmService {
 // ─────────────────────────────────────────────────────────────────────────────
 
   // ─── ROUND ROBIN: get next agent ─────────────────────────────────────────
-  private async getNextAgent(): Promise<{ id: string; fullName: string; phone: string | null }> {
+  // Also used by ShopifyService for abandoned-checkout follow-ups.
+  async getNextAgent(): Promise<{ id: string; fullName: string; phone: string | null }> {
     // Get all active sales agents
     const agents = await this.prisma.user.findMany({
       where: { role: 'SALES_AGENT', isActive: true },

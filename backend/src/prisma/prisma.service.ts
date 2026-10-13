@@ -86,6 +86,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         `ALTER TABLE "DialerCall" ADD COLUMN IF NOT EXISTS ${col}`,
       ).catch(() => { /* ignore if already exists, or DialerCall not created yet */ });
     }
+    // Migration 20261012120000_add_shopify_integration — nullable, metadata-only.
+    // Prisma reads both on every Order query, so every order screen breaks
+    // without them. The unique index is what stops a Shopify order being
+    // created twice; it's on a column that is NULL for every non-Shopify order.
+    for (const sql of [
+      `ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "shopifyOrderId" TEXT`,
+      `ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "shopifyData" JSONB`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS "Order_shopifyOrderId_key" ON "Order"("shopifyOrderId")`,
+    ]) {
+      await this.$executeRawUnsafe(sql).catch(() => { /* ignore if already exists */ });
+    }
   }
   async onModuleDestroy() {
     await this.$disconnect();

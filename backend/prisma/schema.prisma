@@ -532,6 +532,13 @@ model Order {
   // production for real and the app never stopped using it). Matches that
   // migration's column definition exactly.
   customFields     Json                    @default("{}")
+  // Set only on orders received from the Shopify webhook (src/shopify).
+  // shopifyOrderId is Shopify's numeric order id — unique so the same Shopify
+  // order can never be created twice. shopifyData keeps the Shopify-side
+  // details the ERP has no column for (gateway, raw tax lines, discount
+  // codes, note attributes, fulfilments, line item properties).
+  shopifyOrderId   String?                 @unique
+  shopifyData      Json?
   commissions      Commission[]
   invoice          Invoice?
   ledgerEntries    AccountingLedgerEntry[]
@@ -3393,4 +3400,62 @@ model CustomerFeedback {
   order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
+}
+
+// ── Shopify integration (src/shopify) ─────────────────────────────────────
+// Every webhook Shopify sends, saved raw BEFORE processing so the endpoint can
+// answer within Shopify's 5s limit and a failed run can be retried/debugged.
+// webhookId is Shopify's X-Shopify-Webhook-Id — unique, so a retried delivery
+// is recognised and never processed twice.
+// status: RECEIVED | PROCESSING | PROCESSED | IGNORED | FAILED
+model ShopifyWebhookLog {
+  id          String    @id @default(cuid())
+  webhookId   String    @unique
+  topic       String
+  shopDomain  String?
+  resourceId  String?
+  payload     Json
+  status      String    @default("RECEIVED")
+  attempts    Int       @default(0)
+  result      String?
+  error       String?
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status, receivedAt])
+  @@index([resourceId])
+}
+
+// One row per Shopify checkout, keyed by its token. OPEN until an order with
+// the same checkout token arrives (CONVERTED) or 60 minutes pass with no
+// activity (ABANDONED — a Lead, or a Task when there's only an email, is
+// created for follow-up). orderId/leadId/taskId are plain ids, not relations,
+// so no existing model changes.
+model ShopifyCheckout {
+  id                String    @id @default(cuid())
+  token             String    @unique
+  shopifyCheckoutId String?
+  status            String    @default("OPEN")
+  customerName      String?
+  phone             String?
+  email             String?
+  cartItems         Json      @default("[]")
+  cartValue         Decimal   @default(0) @db.Decimal(14, 2)
+  currency          String?
+  recoveryUrl       String?
+  completedAt       DateTime?
+  lastActivityAt    DateTime
+  abandonedAt       DateTime?
+  convertedAt       DateTime?
+  orderId           String?
+  leadId            String?
+  taskId            String?
+  raw               Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, lastActivityAt])
+  @@index([shopifyCheckoutId])
+  @@index([phone])
+  @@index([email])
 }

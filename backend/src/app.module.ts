@@ -52,6 +52,7 @@ import { PoliciesModule } from './policies/policies.module';
 import { ReportsModule } from './reports/reports.module';
 import { CourierCalculatorModule } from './courier-calculator/courier-calculator.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { ShopifyModule } from './shopify/shopify.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     ReportsModule,
     CourierCalculatorModule,
     FeedbackModule,
+    ShopifyModule,
   ],
   controllers: [AppController, AdminDbController, HealthController],
   providers: [AppService, PrismaService],
