@@ -149,6 +149,7 @@ function redactQuoteResult(r: any): any {
     costsVisible: false,
   };
   if (r.sticker) out.sticker = Object.fromEntries(STICKER_PUBLIC_FIELDS.map(f => [f, r.sticker[f]]));
+  if (r.handleBag) out.handleBag = r.handleBag;
   return out;
 }
 
@@ -247,19 +248,32 @@ const DEFAULT_RATES: any = {
   },
   handleBag: {
     multiplier: 1.67,
-    // ₹/kg — the only value edited in the Rates tab; the rest are fixed per-bag charges.
     fabricRatePerKg: 120,
     // 1550 sq inch per m² × 1000 g per kg: converts sq inch × GSM into kg.
     sqInchGsmPerKg: 1550000,
+    rollWidthInch: 63,
+    printSheetMaxWidthInch: 22,
+    printSheetMaxLengthInch: 32,
+    // Side flap (2 per bag, printed) = (L + 0.75) × (H + 1).
+    flapLengthAllowanceInch: 0.75,
+    flapHeightAllowanceInch: 1,
+    // Side wall / gazzette (1 per bag, plain) = (W + 1.5) × (2H + L + 0.75).
     gussetSeamAllowanceInch: 1.5,
-    stitchingWithGusset: 2.25,
-    stitchingWithoutGusset: 1.25,
+    wallLengthAllowanceInch: 0.75,
+    // Printing is charged per printed sheet: first 1000 sheets (minimum
+    // charge), then each further 1000 sheets or part of 1000.
+    // Multicolor:
+    printingFirst1000Sheets: 3200,
+    printingPerNext1000Sheets: 1200,
+    // Single color:
+    singleColorPrintingFirst1000Sheets: 1500,
+    singleColorPrintingPerNext1000Sheets: 1200,
+    // Key names differ from the old per-bag stitching rates (2.25 / 1.25) so
+    // values already saved in the Rates tab can't override these defaults.
+    stitchingWithWall: 3.75,
+    stitchingWithoutWall: 2,
     cuttingWastagePerBag: 0.5,
-    // ₹/bag by qty slab: below 2000 → '1000' slab, 2000–4999 → '2000', 5000+ → '5000'.
-    printingPerBag: {
-      single: { 1000: 1.5, 2000: 1.25, 5000: 1 },
-      multicolor: { 1000: 3.2, 2000: 2.25, 5000: 1.75 },
-    },
+    handlePerBag: 1,
   },
   dotMatrixBill: {
     multiplier: 1.67,
@@ -954,39 +968,102 @@ export class RateCalculatorService {
       if (!(gusset >= 0)) throw new BadRequestException('Gazzette cannot be negative');
       if (gusset > 0 && !(wallGsm > 0)) throw new BadRequestException('Wall GSM must be greater than 0 when Gazzette is given');
 
-      const fabricRate = Number(hb.fabricRatePerKg ?? hbDefaults.fabricRatePerKg);
-      const divisor = Number(hb.sqInchGsmPerKg ?? hbDefaults.sqInchGsmPerKg);
-      const seam = Number(hb.gussetSeamAllowanceInch ?? hbDefaults.gussetSeamAllowanceInch);
+      const rate = (key: string) => Number(hb[key] ?? hbDefaults[key]);
+      const fabricRate = rate('fabricRatePerKg');
+      const divisor = rate('sqInchGsmPerKg');
+      const rollWidth = rate('rollWidthInch');
+      const sheetMaxW = rate('printSheetMaxWidthInch');
+      const sheetMaxL = rate('printSheetMaxLengthInch');
+      const flapLenAllowance = rate('flapLengthAllowanceInch');
+      const flapHeightAllowance = rate('flapHeightAllowanceInch');
+      const seam = rate('gussetSeamAllowanceInch');
+      const wallLenAllowance = rate('wallLengthAllowanceInch');
+      const printFirst1000 = rate(printMode === 'multicolor' ? 'printingFirst1000Sheets' : 'singleColorPrintingFirst1000Sheets');
+      const printNext1000 = rate(printMode === 'multicolor' ? 'printingPerNext1000Sheets' : 'singleColorPrintingPerNext1000Sheets');
+      const EPS = 1e-9;
 
-      // Per-bag costs (₹). Fabric: 2 × L × H × GSM × rate ÷ 1550000.
-      // Gazzette strip: (wall + 1.5) wide, running down both sides and across
-      // the bottom (2H + L) long, at the wall fabric's GSM.
-      const fabricPerBag = 2 * length * height * gsm * fabricRate / divisor;
-      const gussetStripLength = 2 * height + length;
-      const gussetPerBag = gusset > 0 ? (gusset + seam) * gussetStripLength * wallGsm * fabricRate / divisor : 0;
-      const stitchingPerBag = Number(gusset > 0
-        ? (hb.stitchingWithGusset ?? hbDefaults.stitchingWithGusset)
-        : (hb.stitchingWithoutGusset ?? hbDefaults.stitchingWithoutGusset));
-      const slab = bagQty >= 5000 ? 5000 : bagQty >= 2000 ? 2000 : 1000;
-      const printingPerBag = Number(hb.printingPerBag?.[printMode]?.[slab] ?? hbDefaults.printingPerBag[printMode][slab]);
-      const cuttingPerBag = Number(hb.cuttingWastagePerBag ?? hbDefaults.cuttingWastagePerBag);
-      const costPerBag = fabricPerBag + gussetPerBag + stitchingPerBag + printingPerBag + cuttingPerBag;
+      // Side flaps: 2 per bag, printed on a sheet (max 22 × 32) that is cut
+      // from the fabric roll. Try every flap orientation, every nx × ny grid
+      // of flaps that fits on a print sheet, and both ways of laying that
+      // sheet on the roll; keep the cheapest fabric + printing per bag
+      // (ties → less waste, then the first one found).
+      const flapA = length + flapLenAllowance;
+      const flapB = height + flapHeightAllowance;
+      const fitsSheet = (w: number, h: number) => (w <= sheetMaxW && h <= sheetMaxL) || (w <= sheetMaxL && h <= sheetMaxW);
+      if (!fitsSheet(flapA, flapB)) {
+        throw new BadRequestException(`Side flap ${flapA} x ${flapB} in is bigger than the ${sheetMaxW} x ${sheetMaxL} in print sheet`);
+      }
+      // ₹ for n printed sheets: minimum charge for the first 1000, then each further 1000 or part.
+      const printingCostForSheets = (n: number) =>
+        printFirst1000 + Math.ceil(Math.max(0, n - 1000) / 1000) * printNext1000;
+      const sheetMaxSide = Math.max(sheetMaxW, sheetMaxL);
+      let flap: any = null;
+      for (const [side1, side2] of [[flapA, flapB], [flapB, flapA]]) {
+        for (let nx = 1; nx * side1 <= sheetMaxSide; nx++) {
+          for (let ny = 1; ny * side2 <= sheetMaxSide; ny++) {
+            const sheetW = nx * side1;
+            const sheetH = ny * side2;
+            if (!fitsSheet(sheetW, sheetH)) continue;
+            for (const [across, along] of [[sheetW, sheetH], [sheetH, sheetW]]) {
+              if (across > rollWidth) continue;
+              const sheetsAcross = Math.floor(rollWidth / across);
+              const flapsPerSheet = nx * ny;
+              // Includes the roll-edge strip left over after the last sheet across.
+              const rollAreaPerFlap = rollWidth * along / (sheetsAcross * flapsPerSheet);
+              const sheetsNeeded = Math.ceil(2 * bagQty / flapsPerSheet);
+              const fabricPerBag = 2 * rollAreaPerFlap * gsm * fabricRate / divisor;
+              const printingTotal = printingCostForSheets(sheetsNeeded);
+              const printingPerBag = printingTotal / bagQty;
+              const wastePct = (1 - (flapA * flapB) / rollAreaPerFlap) * 100;
+              const score = fabricPerBag + printingPerBag;
+              if (!flap || score < flap.score - EPS || (Math.abs(score - flap.score) <= EPS && wastePct < flap.wastePct - EPS)) {
+                flap = { across, along, sheetsAcross, flapsPerSheet, rollAreaPerFlap, sheetsNeeded, fabricPerBag, printingTotal, printingPerBag, wastePct, score };
+              }
+            }
+          }
+        }
+      }
+
+      // Side wall / gazzette: 1 plain strip per bag, cut straight from the
+      // roll in whichever direction uses less roll area.
+      const wallWidth = gusset + seam;
+      const wallLength = 2 * height + length + wallLenAllowance;
+      let wall: any = null;
+      if (gusset > 0) {
+        for (const [across, along] of [[wallWidth, wallLength], [wallLength, wallWidth]]) {
+          if (across > rollWidth) continue;
+          const stripsAcross = Math.floor(rollWidth / across);
+          const rollAreaPerWall = rollWidth * along / stripsAcross;
+          if (!wall || rollAreaPerWall < wall.rollAreaPerWall - EPS) {
+            wall = { stripsAcross, rollAreaPerWall, wastePct: (1 - (wallWidth * wallLength) / rollAreaPerWall) * 100 };
+          }
+        }
+        if (!wall) throw new BadRequestException(`Side wall ${wallWidth} x ${wallLength} in is wider than the ${rollWidth} in roll`);
+      }
+      const wallPerBag = wall ? wall.rollAreaPerWall * wallGsm * fabricRate / divisor : 0;
+
+      const stitchingPerBag = gusset > 0 ? rate('stitchingWithWall') : rate('stitchingWithoutWall');
+      const cuttingPerBag = rate('cuttingWastagePerBag');
+      const handlePerBag = rate('handlePerBag');
+      const costPerBag = flap.fabricPerBag + wallPerBag + flap.printingPerBag + stitchingPerBag + cuttingPerBag + handlePerBag;
 
       const subtotal = costPerBag * bagQty;
       const multiplier = dtoMult ?? hb.multiplier ?? hbDefaults.multiplier;
       const total = subtotal * multiplier;
       const q = bagQty.toLocaleString();
-      const slabLabel = slab === 5000 ? '5000+' : slab === 2000 ? '2000-4999' : 'up to 1999';
+      const sheetSize = `${flap.across} x ${flap.along} in`;
+      const extraThousands = Math.ceil(Math.max(0, flap.sheetsNeeded - 1000) / 1000);
       const breakdown: any[] = [
-        { label: `2 sides fabric (2 x ${length} x ${height} in x ${gsm} GSM x Rs.${fabricRate}/kg ÷ ${divisor} = Rs.${fabricPerBag.toFixed(4)}/bag x ${q})`, amount: fabricPerBag * bagQty },
+        { label: `Side flaps (2 x (${length}+${flapLenAllowance} x ${height}+${flapHeightAllowance}) = 2 x ${flapA} x ${flapB} in, ${gsm} GSM, ${flap.flapsPerSheet}/sheet on ${sheetSize} sheet, ${flap.sheetsAcross} sheets across ${rollWidth} in roll = ${flap.rollAreaPerFlap.toFixed(2)} sq in/flap x Rs.${fabricRate}/kg ÷ ${divisor} = Rs.${flap.fabricPerBag.toFixed(4)}/bag x ${q})`, amount: flap.fabricPerBag * bagQty },
       ];
-      if (gusset > 0) {
-        breakdown.push({ label: `Gazzette ((${gusset} + ${seam}) x (2 x ${height} + ${length}) in x ${wallGsm} GSM x Rs.${fabricRate}/kg ÷ ${divisor} = Rs.${gussetPerBag.toFixed(4)}/bag x ${q})`, amount: gussetPerBag * bagQty });
+      if (wall) {
+        breakdown.push({ label: `Gazzette ((${gusset}+${seam}) x (2 x ${height} + ${length} + ${wallLenAllowance}) = ${wallWidth} x ${wallLength} in, ${wallGsm} GSM, ${wall.stripsAcross} strips across ${rollWidth} in roll = ${wall.rollAreaPerWall.toFixed(2)} sq in x Rs.${fabricRate}/kg ÷ ${divisor} = Rs.${wallPerBag.toFixed(4)}/bag x ${q})`, amount: wallPerBag * bagQty });
       }
       breakdown.push(
+        { label: `Printing (${printMode === 'multicolor' ? 'Multicolor' : 'Single Color'}, ${sheetSize} sheet, ${flap.flapsPerSheet} flaps/sheet, ${flap.sheetsAcross} sheets across roll, ${flap.sheetsNeeded.toLocaleString()} sheets: Rs.${printFirst1000} first 1000 + ${extraThousands} x Rs.${printNext1000} = Rs.${flap.printingTotal} ÷ ${q} = Rs.${flap.printingPerBag.toFixed(4)}/bag x ${q})`, amount: flap.printingTotal },
         { label: `Stitching (${gusset > 0 ? 'with' : 'without'} gazzette, Rs.${stitchingPerBag}/bag x ${q})`, amount: stitchingPerBag * bagQty },
-        { label: `Printing (${printMode === 'multicolor' ? 'Multicolor' : 'Single Color'}, ${slabLabel} bags, Rs.${printingPerBag}/bag x ${q})`, amount: printingPerBag * bagQty },
         { label: `Cutting & Wastage (Rs.${cuttingPerBag}/bag x ${q})`, amount: cuttingPerBag * bagQty },
+        { label: `Handle (Rs.${handlePerBag}/bag x ${q})`, amount: handlePerBag * bagQty },
       );
       return {
         breakdown,
@@ -995,6 +1072,21 @@ export class RateCalculatorService {
         perPiece: total / bagQty,
         totalPieces: bagQty,
         description: `${q} handle bags | ${length}x${height} in | gazzette ${gusset} in | ${gsm} GSM${gusset > 0 ? ` | wall ${wallGsm} GSM` : ''} | ${printMode === 'multicolor' ? 'multicolor' : 'single color'} | cost Rs.${costPerBag.toFixed(2)}/bag`,
+        // Cutting layout — sizes and counts only, no ₹, so every role gets it.
+        handleBag: {
+          flapA,
+          flapB,
+          sheetAcross: flap.across,
+          sheetAlong: flap.along,
+          flapsPerSheet: flap.flapsPerSheet,
+          sheetsAcross: flap.sheetsAcross,
+          sheetsNeeded: flap.sheetsNeeded,
+          flapWastePct: flap.wastePct,
+          wallWidth: wall ? wallWidth : null,
+          wallLength: wall ? wallLength : null,
+          wallStripsAcross: wall ? wall.stripsAcross : null,
+          wallWastePct: wall ? wall.wastePct : null,
+        },
         multiplier,
         customer,
       };

@@ -115,6 +115,20 @@ type Result = {
     ourTotal: number;
     winner: "vendor" | "ours";
   };
+  handleBag?: {
+    flapA: number;
+    flapB: number;
+    sheetAcross: number;
+    sheetAlong: number;
+    flapsPerSheet: number;
+    sheetsAcross: number;
+    sheetsNeeded: number;
+    flapWastePct: number;
+    wallWidth: number | null;
+    wallLength: number | null;
+    wallStripsAcross: number | null;
+    wallWastePct: number | null;
+  };
   sticker?: {
     width: number;
     height: number;
@@ -942,6 +956,33 @@ function CommissionPanel({ cost, total, qty, isAdmin }: {
 }
 
 // showCosts=false → prices and production only (no rates, costs or multipliers).
+function HandleBagLayoutCard({ layout }: { layout: NonNullable<Result["handleBag"]> }) {
+  const rows: [string, string][] = [
+    ["Sheet size", `${layout.sheetAcross} × ${layout.sheetAlong} in`],
+    ["Flaps per sheet", `${layout.flapsPerSheet} (flap ${layout.flapA} × ${layout.flapB} in)`],
+    ["Sheets across the roll", String(layout.sheetsAcross)],
+    ["Total sheets", layout.sheetsNeeded.toLocaleString()],
+    ["Flap waste", `${layout.flapWastePct.toFixed(2)}%`],
+  ];
+  if (layout.wallStripsAcross != null) {
+    rows.push(
+      ["Wall strips across the roll", `${layout.wallStripsAcross} (wall ${layout.wallWidth} × ${layout.wallLength} in)`],
+      ["Wall waste", `${(layout.wallWastePct ?? 0).toFixed(2)}%`],
+    );
+  }
+  return (
+    <div className="border border-slate-200 rounded-xl p-3 mt-3 bg-white">
+      <p className="text-xs font-bold text-slate-700 mb-2">Cutting layout</p>
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex justify-between text-xs py-0.5">
+          <span className="text-slate-500">{label}</span>
+          <span className="font-semibold text-slate-800">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StickerProductionCard({ sticker, showCosts }: {
   sticker: NonNullable<Result["sticker"]>;
   showCosts: boolean;
@@ -1176,6 +1217,7 @@ export default function RateCalculatorPage() {
   const [tab, setTab] = useState<Tab>("reverse");
   const [isAdmin, setIsAdmin] = useState(true); // default true until user loaded
   const [loading, setLoading] = useState(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [resultDesc, setResultDesc] = useState("");
   const [currentQuote, setCurrentQuote] = useState<QuoteCopy | null>(null);
@@ -1315,6 +1357,7 @@ export default function RateCalculatorPage() {
       setRHandleBagGsm(80);
       setRHandleBagWallGsm(80);
       setRHandleBagPrintMode("single");
+      setCalcError(null);
       return;
     }
     if (rProduct === "dotmatrixbill") {
@@ -1504,13 +1547,15 @@ export default function RateCalculatorPage() {
   };
 
   const post = async (endpoint: string, body: any) => {
-    setLoading(true); setResult(null); setCurrentQuote(null);
+    setLoading(true); setResult(null); setCurrentQuote(null); setCalcError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/rate-calculator/${endpoint}`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (res.ok) return await res.json();
+      const err = await res.json().catch(() => null);
+      setCalcError(typeof err?.message === "string" ? err.message : "Calculation failed.");
     } finally { setLoading(false); }
     return null;
   };
@@ -2233,14 +2278,17 @@ export default function RateCalculatorPage() {
                     </div>
                     {isAdmin && (
                       <div className="mt-2 bg-slate-50 border border-slate-200 rounded p-2 text-xs text-slate-600">
-                        Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 0}/kg</strong> (Rates tab) · 2 sides fabric = 2 × L × H × GSM × rate ÷ 1550000
-                        {" "}+ Gazzette = (wall + 1.5) × (2H + L) × wall GSM × rate ÷ 1550000 + stitching + printing slab + cutting &amp; wastage → × multiplier. Click Calculate for the breakdown.
+                        Fabric rate <strong>₹{rates?.handleBag?.fabricRatePerKg ?? 0}/kg</strong> (Rates tab) · 2 side flaps (L + {rates?.handleBag?.flapLengthAllowanceInch ?? ""}) × (H + {rates?.handleBag?.flapHeightAllowanceInch ?? ""}) printed on the least-waste {rates?.handleBag?.printSheetMaxWidthInch ?? ""} × {rates?.handleBag?.printSheetMaxLengthInch ?? ""} sheet layout
+                        {" "}+ Gazzette (W + {rates?.handleBag?.gussetSeamAllowanceInch ?? ""}) × (2H + L + {rates?.handleBag?.wallLengthAllowanceInch ?? ""}) on the {rates?.handleBag?.rollWidthInch ?? ""} in roll + printing per sheet + stitching + cutting &amp; wastage + handle → × multiplier. Click Calculate for the breakdown.
                       </div>
                     )}
                     {handleBagInvalid && (
                       <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
                         Quantity, Length, Height and GSM must be greater than 0{rHandleBagGusset > 0 ? ", and Wall GSM is required when Gazzette is given" : ""}.
                       </div>
+                    )}
+                    {calcError && (
+                      <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700">{calcError}</div>
                     )}
                   </>
                 ) : rProduct === "dotmatrixbill" ? (
@@ -2443,6 +2491,7 @@ export default function RateCalculatorPage() {
               {result && (
                 <>
                   <ResultCard result={result} desc={resultDesc} isAdmin={isAdmin} />
+                  {result?.handleBag && <HandleBagLayoutCard layout={result.handleBag} />}
                   {currentQuote && <QuotationCopyCard quote={currentQuote} />}
                   {result?.sticker && (
                     <StickerProductionCard sticker={result.sticker} showCosts={!!(isAdmin && result.costsVisible)} />
@@ -2644,7 +2693,7 @@ export default function RateCalculatorPage() {
                   />
                 </Card>
                 <Card title="Handle Bag">
-                  <p className="text-[10px] text-slate-400 mb-2">Fabric cost = area (sq in) × GSM × Fabric Rate ÷ 1550000. Stitching, printing slabs and cutting &amp; wastage are fixed per bag.</p>
+                  <p className="text-[10px] text-slate-400 mb-2">Fabric cost = roll area (sq in) × GSM × Fabric Rate ÷ 1550000. Side flaps use the least-waste print sheet layout on the roll; printing is charged per sheet. Stitching, cutting &amp; wastage and handle are fixed per bag.</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <Field label="Handle Bag Fabric Rate (₹/kg)">
                       <Input type="number" step="0.01" value={rates.handleBag?.fabricRatePerKg ?? ""} onChange={e => updateRate("handleBag.fabricRatePerKg", +e.target.value)} />
@@ -2652,6 +2701,27 @@ export default function RateCalculatorPage() {
                     <Field label="Selling Multiplier (×)">
                       <Input type="number" step="0.01" value={rates.handleBag?.multiplier ?? ""} onChange={e => updateRate("handleBag.multiplier", +e.target.value)} />
                     </Field>
+                    {([
+                      ["rollWidthInch", "Fabric Roll Width (in)"],
+                      ["printSheetMaxWidthInch", "Print Sheet Max Width (in)"],
+                      ["printSheetMaxLengthInch", "Print Sheet Max Length (in)"],
+                      ["flapLengthAllowanceInch", "Flap Allowance on L (+in)"],
+                      ["flapHeightAllowanceInch", "Flap Allowance on H (+in)"],
+                      ["gussetSeamAllowanceInch", "Wall Allowance on W (+in)"],
+                      ["wallLengthAllowanceInch", "Wall Allowance on Length (+in)"],
+                      ["printingFirst1000Sheets", "Multicolor First 1,000 Sheets (₹)"],
+                      ["printingPerNext1000Sheets", "Multicolor Each Next 1,000 Sheets (₹)"],
+                      ["singleColorPrintingFirst1000Sheets", "Single Color First 1,000 Sheets (₹)"],
+                      ["singleColorPrintingPerNext1000Sheets", "Single Color Each Next 1,000 Sheets (₹)"],
+                      ["stitchingWithWall", "Stitching With Wall (₹/bag)"],
+                      ["stitchingWithoutWall", "Stitching Without Wall (₹/bag)"],
+                      ["cuttingWastagePerBag", "Cutting & Wastage (₹/bag)"],
+                      ["handlePerBag", "Handle (₹/bag)"],
+                    ] as const).map(([key, label]) => (
+                      <Field key={key} label={label}>
+                        <Input type="number" step="0.01" value={rates.handleBag?.[key] ?? ""} onChange={e => updateRate(`handleBag.${key}`, +e.target.value)} />
+                      </Field>
+                    ))}
                   </div>
                 </Card>
                 <Card title="X-ray / CT Scan Bags">
