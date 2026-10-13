@@ -20,3 +20,12 @@ export function splitInclusiveGst(lineTotal: number, gstRatePct: number, gstTrea
   const half = round(taxAmount / 2);
   return { gstRatePct: rate, taxableAmount, taxAmount, cgstAmount: half, sgstAmount: round(taxAmount - half), igstAmount: 0 };
 }
+
+// Customer in the company's own GST state (COMPANY_GST_STATE, default
+// Maharashtra) or with no state on file → CGST+SGST; any other state → IGST.
+// Shared by invoice creation (AccountsService) and the Estimate PDF.
+export function gstTreatmentForState(state?: string | null): 'INTRA_STATE' | 'INTER_STATE' {
+  if (!state) return 'INTRA_STATE';
+  const companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
+  return state.trim().toLowerCase() === companyState ? 'INTRA_STATE' : 'INTER_STATE';
+}

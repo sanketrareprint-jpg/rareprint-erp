@@ -97,6 +97,12 @@ export interface InvoicePdfData {
   // row (2026-10-06). Optional so a normal invoice needs neither.
   cancelled?: boolean;
   cancellationReason?: string | null;
+  // Billing > Estimates print on this same layout (2026-10-13, "make the
+  // estimate identical to the invoice, keep only the heading and number"):
+  // titled "Estimate", "Estimate Details:" / "Estimate Amount In Words :"
+  // labels, and no Received/Balance rows (an estimate has no payments).
+  // Optional so a normal invoice is untouched.
+  estimate?: boolean;
   company: InvoicePdfCompanyProfile;
 }
 
@@ -467,6 +473,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         doc.font('Body-Bold').fontSize(17).fillColor(CANCELLED_RED)
           .text('CANCELLED INVOICE', PAGE_MARGIN, y + 6, { width: CONTENT_WIDTH, align: 'center', lineBreak: false });
         doc.fillColor(BORDER);
+      } else if (data.estimate) {
+        // Same fallback as the cancelled title: no reference glyph outlines
+        // for these letters, so the normal bold font on the same line.
+        doc.font('Body-Bold').fontSize(17).fillColor(BORDER)
+          .text('Estimate', PAGE_MARGIN, y + 6, { width: CONTENT_WIDTH, align: 'center', lineBreak: false });
       } else {
         drawGlyphString(
           'Tax Invoice',
@@ -721,12 +732,19 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       // from the title/company case), so they all share one constant:
       // HEADER_GLYPH_SCALE = 11.2 * 0.75 = 8.4. y+11.25 — reference baseline
       // 165.75 minus this row's y (154.5 in scenario A).
-      drawGlyphString(
-        'Invoice Details:',
-        [301.641, 303.923, 308.556, 312.559, 317.344, 319.385, 323.777, 328.226, 330.307, 335.813, 340.263, 343.008, 347.572, 349.612, 351.652, 355.983],
-        y + 11.25,
-        8.4,
-      );
+      if (data.estimate) {
+        // Normal bold font (no reference glyphs for "Estimate"); top y+2.17
+        // puts its baseline on the same y+11.25 as the glyph label.
+        doc.font('Body-Bold').fontSize(8.4).fillColor(BORDER);
+        boldText('Estimate Details:', 301.641, y + 2.17, { lineBreak: false }, 1);
+      } else {
+        drawGlyphString(
+          'Invoice Details:',
+          [301.641, 303.923, 308.556, 312.559, 317.344, 319.385, 323.777, 328.226, 330.307, 335.813, 340.263, 343.008, 347.572, 349.612, 351.652, 355.983],
+          y + 11.25,
+          8.4,
+        );
+      }
 
       // Bill To column: name, full address, (Contact No | GSTIN Number stacked), State.
       // fontSize 8.4 (was 8/9 below) — root-caused 2026-08-29 via pikepdf
@@ -1674,12 +1692,18 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // Exact reference glyph positions — same fix as the other section
     // headers. ry+7.11 (reference baseline 337.50 minus this row's ry,
     // 330.39, in scenario A).
-    drawGlyphString(
-      'Invoice Amount In Words :',
-      [406.277, 408.559, 413.193, 417.196, 421.981, 424.021, 428.413, 432.863, 434.944, 440.417, 447.776, 452.561, 457.186, 461.820, 464.565, 466.646, 468.928, 473.562, 475.643, 482.960, 487.746, 490.511, 495.243, 499.574, 501.655],
-      ry + 7.11,
-      8.4,
-    );
+    if (data.estimate) {
+      // Same baseline (ry+7.11) as the glyph label, in the normal bold font.
+      doc.font('Body-Bold').fontSize(8.4).fillColor(BORDER);
+      boldText('Estimate Amount In Words :', 406.277, ry - 1.97, { lineBreak: false }, 1);
+    } else {
+      drawGlyphString(
+        'Invoice Amount In Words :',
+        [406.277, 408.559, 413.193, 417.196, 421.981, 424.021, 428.413, 432.863, 434.944, 440.417, 447.776, 452.561, 457.186, 461.820, 464.565, 466.646, 468.928, 473.562, 475.643, 482.960, 487.746, 490.511, 495.243, 499.574, 501.655],
+        ry + 7.11,
+        8.4,
+      );
+    }
     ry += RIGHT_BOX_UPPER_PITCH;
     rightDivider(ry);
     // fontSize 8.4 (was 7.5) + hscale 1.02 (re-measured against the
@@ -1709,7 +1733,9 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // Received — missed in the earlier pass (only 3 were added then); the
     // reference has one here too (pikepdf thin-rect extraction, y=368.3).
     rightDivider(ry);
-    summaryRow('Received', rupee(data.paidAmount));
+    // Estimates have no payments — the four payment rows stay blank (the
+    // ry steps still run so everything below keeps its fixed position).
+    if (!data.estimate) summaryRow('Received', rupee(data.paidAmount));
     ry += RIGHT_BOX_LOWER_PITCH;
     // bold:true removed — root-caused 2026-09-03: the reference renders
     // this row in the SAME regular weight as Received/Previous Balance/
@@ -1721,11 +1747,11 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     // weight just hadn't been matched to it. Confirmed visually: our render
     // showed Balance's value in visibly heavier strokes than the reference
     // at the same spot.
-    summaryRow('Balance', rupee(data.balanceAmount));
+    if (!data.estimate) summaryRow('Balance', rupee(data.balanceAmount));
     ry += RIGHT_BOX_LOWER_PITCH;
-    summaryRow('Previous Balance', rupee(data.previousBalance));
+    if (!data.estimate) summaryRow('Previous Balance', rupee(data.previousBalance));
     ry += RIGHT_BOX_LOWER_PITCH;
-    summaryRow('Current Balance', rupee(data.currentBalance));
+    if (!data.estimate) summaryRow('Current Balance', rupee(data.currentBalance));
     // Deliberately NOT another "+= 15" here — every increment above moves
     // ry to the top of the row that follows, but there is no row after
     // Current Balance. Advancing by the same row pitch anyway (as an

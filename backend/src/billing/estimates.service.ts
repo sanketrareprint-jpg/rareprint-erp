@@ -10,8 +10,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingService } from './billing.service';
-import { buildEstimatePdf } from './estimate-pdf';
-import { InvoicePdfCompanyProfile } from './invoice-pdf';
+import { buildInvoicePdf, InvoicePdfCompanyProfile } from './invoice-pdf';
+import { gstTreatmentForState, splitInclusiveGst } from '../common/inclusive-gst';
+import { extractSizeFromNote, formatItemDetailsNote } from '../common/resolve-item-details';
 import { sanitizePhone } from '../orders/orders.service';
 import { GSTIN_FORMAT } from '../orders/dto/create-order.dto';
 
@@ -228,33 +229,65 @@ export class EstimatesService {
     return this.get(id);
   }
 
+  // Printed on the Tax Invoice layout (buildInvoicePdf with estimate:true) —
+  // same header, Bill To, HSN/GST columns, Tax Summary, terms, bank details
+  // and signature; only the title and the number differ. GST is split out of
+  // the rate exactly like invoice creation does (AccountsService.
+  // createInvoiceAndLedger): rates include GST, each line uses its product's
+  // current gstRatePct, and the party's state decides CGST+SGST vs IGST — so
+  // the estimate total is unchanged and matches the invoice it will become.
   async generatePdf(id: string): Promise<{ buffer: Buffer; filename: string }> {
     const e = await this.get(id);
     const company = await this.billing.getCompanyProfile();
     const fmt = (d: Date | string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const buffer = await buildEstimatePdf({
-      estimateNumber: e.estimateNumber,
-      estimateDate: fmt(e.estimateDate),
-      validUntil: e.validUntil ? fmt(e.validUntil) : null,
+    const gstTreatment = gstTreatmentForState(e.customerState);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: [...new Set<string>(e.items.map((i: any) => i.productId))] } },
+      select: { id: true, hsnCode: true, gstRatePct: true },
+    });
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const items = e.items.map((i: any) => {
+      const product = productById.get(i.productId);
+      const split = splitInclusiveGst(i.lineTotal, Number(product?.gstRatePct ?? 0), gstTreatment);
+      const details = [
+        formatItemDetailsNote(null, { sizeInches: i.sizeInches, gsm: i.gsm, paperType: i.paperType, sides: i.sides }),
+        clean(i.notes),
+      ].filter(Boolean).join(', ') || null;
+      return {
+        productName: i.productName,
+        hsnSac: product?.hsnCode ?? null,
+        productDetails: details,
+        size: extractSizeFromNote(details),
+        quantity: i.quantity,
+        unit: 'PCS', // same as invoices — no per-item unit field
+        unitPrice: i.unitPrice,
+        gstRatePct: split.gstRatePct,
+        cgstAmount: split.cgstAmount,
+        sgstAmount: split.sgstAmount,
+        igstAmount: split.igstAmount,
+        taxableAmount: split.taxableAmount,
+        lineTotal: i.lineTotal,
+      };
+    });
+    const buffer = await buildInvoicePdf({
+      estimate: true,
+      invoiceNumber: e.estimateNumber,
+      issueDate: fmt(e.estimateDate),
+      gstTreatment,
+      subtotal: e.totalAmount,
+      totalAmount: e.totalAmount,
+      paidAmount: 0,
+      balanceAmount: e.totalAmount,
+      previousBalance: 0,
+      currentBalance: e.totalAmount,
+      agentName: '',
+      termsAndConditions: [clean(e.notes), clean(company.defaultTermsAndConditions)].filter(Boolean).join('\n'),
       customerName: e.customerName,
       customerAddress: [e.customerAddress, e.customerCity, e.customerState, e.customerPincode].filter(Boolean).join(', '),
       customerPhone: e.customerPhone ?? '',
+      customerState: e.customerState ?? '',
       customerGstin: e.customerGstin ?? '',
-      notes: e.notes ?? '',
-      items: e.items.map((i: any) => ({
-        productName: i.productName,
-        details: [
-          i.sizeInches ? `Size: ${i.sizeInches}` : null,
-          i.gsm ? `GSM: ${i.gsm}` : null,
-          i.paperType ? `Paper: ${i.paperType}` : null,
-          i.sides ? `Sides: ${String(i.sides).replace(/_/g, ' ')}` : null,
-          i.notes || null,
-        ].filter(Boolean).join(', '),
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        lineTotal: i.lineTotal,
-      })),
-      totalAmount: e.totalAmount,
+      items,
       company: company as InvoicePdfCompanyProfile,
     });
     return { buffer, filename: `Estimate_${e.estimateNumber}.pdf` };

@@ -30,7 +30,7 @@ import { OrdersService } from '../orders/orders.service';
 import { isCreditDispatchLog } from '../common/credit-dispatch';
 import { BillingService } from '../billing/billing.service';
 import { syncInvoicePaidAmount } from '../common/sync-invoice-paid-amount';
-import { splitInclusiveGst } from '../common/inclusive-gst';
+import { splitInclusiveGst, gstTreatmentForState } from '../common/inclusive-gst';
 import { syncInvoiceCourierCharge, courierGstSplit } from '../common/sync-invoice-courier-charge';
 import { assertItemsCancellable, releaseItemAssignments } from '../common/cancel-item-assignments';
 import { upsellBlockReason } from '../common/order-upsell';
@@ -106,8 +106,6 @@ export class AccountsService {
     private orders: OrdersService,
   ) {}
 
-  private readonly companyState = (process.env.COMPANY_GST_STATE ?? 'Maharashtra').trim().toLowerCase();
-
   private money(value: unknown) {
     const n = Number(value ?? 0);
     if (!Number.isFinite(n)) throw new BadRequestException('Invalid amount');
@@ -122,10 +120,7 @@ export class AccountsService {
   }
 
   private gstTreatmentForState(state?: string | null): GstTreatment {
-    if (!state) return GstTreatment.INTRA_STATE;
-    return state.trim().toLowerCase() === this.companyState
-      ? GstTreatment.INTRA_STATE
-      : GstTreatment.INTER_STATE;
+    return gstTreatmentForState(state) as GstTreatment;
   }
 
   private splitGst(taxableAmount: number, gstRatePct: number, gstTreatment: GstTreatment) {
