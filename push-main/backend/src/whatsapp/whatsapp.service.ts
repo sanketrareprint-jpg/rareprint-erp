@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
-const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
+const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? '';
 const TEMPLATE_NAME = 'order_updatess';
 
 export interface WhatsAppOrderParams {

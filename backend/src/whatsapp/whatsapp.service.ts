@@ -6,7 +6,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { whatsappRequestUser } from './whatsapp-request-context';
 
 const AISENSY_API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
-const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3NzI3YmI2NzEyN2RmMGMyMDc5OGM1ZCIsIm5hbWUiOiJSQVJFUFJJTlQzIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjYyMjZmOTA1MDFhNWM5NjdhMDBiMDRkNCIsImFjdGl2ZVBsYW4iOiJQUk9fWUVBUkxZIiwiaWF0IjoxNzU5MjM4OTQzfQ.FQpnJHJnplYIcwZc2FKOkJUrOkLvoF2jFTTx7GycoBE';
+// No hardcoded fallback: RarePrint's deployment sets its own key, and a
+// customer without one must not send through RarePrint's AiSensy account.
+const AISENSY_API_KEY = process.env.AISENSY_API_KEY ?? '';
 // Order status updates (sendOrderUpdate). order_status_support_erp is the old
 // order_updatess template plus {{6}}, a link to the customer's complaint/query
 // form for that order (see common/complaint-link.ts). order_updatess stays

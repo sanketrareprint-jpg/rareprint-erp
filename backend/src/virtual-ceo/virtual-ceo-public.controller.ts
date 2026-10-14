@@ -9,14 +9,17 @@ export class VirtualCeoPublicController {
   constructor(private readonly svc: VirtualCeoService) {}
 
   /**
-   * GET /virtual-ceo-public/trigger-envelope-list?key=rareprint-cron
+   * GET /virtual-ceo-public/trigger-envelope-list?key=<CRON_SECRET>
    * Manual trigger for the Raza Envelope daily pending list.
    * No JWT required — protected by CRON_SECRET env var.
    */
   @Get('trigger-envelope-list')
   async triggerEnvelopeList(@Query('key') key: string) {
-    const secret = process.env.CRON_SECRET ?? 'rareprint-cron';
-    if (key !== secret) throw new UnauthorizedException('Invalid key');
+    // No default: the old fallback ('rareprint-cron') was public in the repo.
+    // With CRON_SECRET unset this stays locked; signed-in users have
+    // GET /virtual-ceo/trigger-envelope-list.
+    const secret = process.env.CRON_SECRET?.trim();
+    if (!secret || key !== secret) throw new UnauthorizedException('Invalid key');
     const result = await this.svc.sendDailyEnvelopeList();
     return { ok: true, ...result };
   }
