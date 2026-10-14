@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { DEFAULT_NAV_GROUPS, groupNavItems, type NavEntry, type NavGroupConfig } from "@/lib/navGroups";
+import { useStoredValue } from "@/lib/useStoredValue";
 import { useActivityTracker } from "@/lib/useActivityTracker";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { DialerDeskPopup } from "@/components/DialerDeskPopup";
@@ -181,6 +182,13 @@ const NAV_GROUP_ICONS: Record<string, React.ElementType> = {
   finance: DollarSign, marketing: Megaphone, hr: Briefcase, admin: Settings,
 };
 
+function parseOpenGroups(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch { return []; }
+}
+
 // Window event Settings fires after saving categories, so the open
 // sidebar updates without a reload.
 export const NAV_GROUPS_UPDATED_EVENT = "rareprint:nav-groups-updated";
@@ -248,14 +256,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // the incident this was fixed under (2026-09-19).
   const [user, setUser] = useState<StoredUser | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("rareprint_sidebar_collapsed") === "1";
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("rareprint_sidebar_collapsed", collapsed ? "1" : "0");
-  }, [collapsed]);
+  // Read via useStoredValue so the first render matches the server HTML —
+  // reading localStorage in a useState initializer caused hydration error #418.
+  const [collapsedValue, setCollapsedValue] = useStoredValue("rareprint_sidebar_collapsed", "0");
+  const collapsed = collapsedValue === "1";
   useActivityTracker(); // Track active time when cursor is moving
 
   // Reflect "running inside the native Android app" as a class on <html>,
@@ -276,7 +280,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // Sidebar categories: which ones are expanded is remembered per browser;
   // in the collapsed (icons-only) sidebar a category opens as a pop-out.
   const [navGroups, setNavGroups] = useState<NavGroupConfig[]>(DEFAULT_NAV_GROUPS);
-  const [openGroups, setOpenGroups] = useState<string[] | null>(null);
+  const [openGroupsValue, setOpenGroupsValue] = useStoredValue("rareprint_sidebar_open_groups", "[]");
   const [flyout, setFlyout] = useState<{ id: string; top: number; left: number } | null>(null);
 
   // Loads the stored user post-mount (client-only, see the state comment
@@ -362,16 +366,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener(NAV_GROUPS_UPDATED_EVENT, onUpdated);
   }, []);
 
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(window.localStorage.getItem("rareprint_sidebar_open_groups") ?? "[]");
-      setOpenGroups(Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : []);
-    } catch { setOpenGroups([]); }
-  }, []);
-
-  useEffect(() => {
-    if (openGroups) window.localStorage.setItem("rareprint_sidebar_open_groups", JSON.stringify(openGroups));
-  }, [openGroups]);
 
   useEffect(() => {
     if (!user) return;
@@ -408,16 +402,28 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const navEntries = groupNavItems(navItems, navGroups);
   const groupEntries = navEntries.filter((e): e is NavGroupEntry => e.kind === "group");
   const activeGroupId = groupEntries.find((e) => e.items.some((i) => isActiveHref(i.href)))?.group.id;
-  const groupsLoaded = openGroups !== null;
   const shopifyWaiting = (shopifyCounts?.waiting ?? 0) > 0;
+  const openGroups = parseOpenGroups(openGroupsValue);
 
-  // Opening a page inside a category expands that category.
-  useEffect(() => {
-    if (!groupsLoaded || !activeGroupId) return;
-    setOpenGroups((prev) => (prev && !prev.includes(activeGroupId) ? [...prev, activeGroupId] : prev));
-  }, [pathname, activeGroupId, groupsLoaded]);
+  // The category holding the current page is shown open even if the user
+  // closed it earlier; clicking it closes it until the active category
+  // changes. Updated during render (React's "adjust state when a value
+  // changes" pattern) rather than in an effect.
+  const [autoOpenId, setAutoOpenId] = useState<string | undefined>(activeGroupId);
+  const [prevActiveGroupId, setPrevActiveGroupId] = useState(activeGroupId);
+  if (prevActiveGroupId !== activeGroupId) {
+    setPrevActiveGroupId(activeGroupId);
+    setAutoOpenId(activeGroupId);
+  }
+  const isGroupOpen = (id: string) => openGroups.includes(id) || autoOpenId === id;
 
-  useEffect(() => { setFlyout(null); }, [pathname, collapsed]);
+  // Close the collapsed-sidebar pop-out on navigation or expand/collapse.
+  const flyoutKey = `${pathname}|${collapsed}`;
+  const [prevFlyoutKey, setPrevFlyoutKey] = useState(flyoutKey);
+  if (prevFlyoutKey !== flyoutKey) {
+    setPrevFlyoutKey(flyoutKey);
+    setFlyout(null);
+  }
 
   useEffect(() => {
     if (!flyout) return;
@@ -426,8 +432,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [flyout]);
 
-  const toggleGroup = (id: string) =>
-    setOpenGroups((prev) => (prev ?? []).includes(id) ? (prev ?? []).filter((g) => g !== id) : [...(prev ?? []), id]);
+  const toggleGroup = (id: string) => {
+    if (isGroupOpen(id)) {
+      if (autoOpenId === id) setAutoOpenId(undefined);
+      setOpenGroupsValue(JSON.stringify(openGroups.filter((g) => g !== id)));
+    } else {
+      setOpenGroupsValue(JSON.stringify([...openGroups, id]));
+    }
+  };
 
   const renderSidebarLink = (item: NavItem, nested: boolean) => {
     const Icon   = item.icon;
@@ -474,7 +486,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const renderSidebarGroup = (group: NavGroupConfig, items: NavItem[]) => {
     const GroupIcon = NAV_GROUP_ICONS[group.id] ?? Folder;
-    const open = (openGroups ?? []).includes(group.id);
+    const open = isGroupOpen(group.id);
     const containsActive = items.some((i) => isActiveHref(i.href));
     const showDot = shopifyWaiting && items.some((i) => i.href === "/shopify") && (collapsed || !open);
     return (
@@ -602,7 +614,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       }}>
         {/* Collapse/expand toggle */}
         <button
-          onClick={() => setCollapsed(c => !c)}
+          onClick={() => setCollapsedValue(collapsed ? "0" : "1")}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           style={{
