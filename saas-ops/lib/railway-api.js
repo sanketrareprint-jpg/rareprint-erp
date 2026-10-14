@@ -47,6 +47,28 @@ async function graphqlRequest(query, variables) {
   return json.data;
 }
 
+// Network-level failures ("fetch failed" — the request never got a reply)
+// are retried ONLY for calls that are safe to repeat, like a variable upsert
+// or a read. Never wrap a create (environment/service) in this: if the first
+// request actually reached Railway, a retry would build a duplicate. Added
+// 2026-10-14 after a real approve run died on one dropped request while
+// setting the backend's 22 variables one by one.
+const NETWORK_RETRY_DELAYS_MS = [3_000, 10_000, 20_000];
+
+async function idempotentGraphqlRequest(query, variables) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await graphqlRequest(query, variables);
+    } catch (err) {
+      const isNetworkError = err instanceof TypeError && /fetch failed/i.test(err.message);
+      if (!isNetworkError || attempt >= NETWORK_RETRY_DELAYS_MS.length) throw err;
+      const delayMs = NETWORK_RETRY_DELAYS_MS[attempt];
+      console.warn(`  Railway API request failed (network), retrying in ${delayMs / 1000}s...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
 /**
  * Creates a new Environment inside the fixed customer-instances project
  * (RAILWAY_CUSTOMERS_PROJECT_ID from .env — never RarePrint's own project).
@@ -465,7 +487,7 @@ export async function setServiceVariable(environmentId, serviceId, key, value) {
       variableUpsert(input: $input)
     }
   `;
-  await graphqlRequest(query, {
+  await idempotentGraphqlRequest(query, {
     input: { projectId, environmentId, serviceId, name: key, value },
   });
 }
@@ -508,7 +530,7 @@ export async function getServiceVariables(environmentId, serviceId) {
       variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
     }
   `;
-  const data = await graphqlRequest(query, { projectId, environmentId, serviceId });
+  const data = await idempotentGraphqlRequest(query, { projectId, environmentId, serviceId });
   return data.variables; // { KEY: "value", ... }
 }
 
