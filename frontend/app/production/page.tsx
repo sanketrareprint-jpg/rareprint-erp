@@ -1825,7 +1825,7 @@ export default function ProductionPage() {
                                   <button onClick={() => {
                                     const selValue = sheetPickerValue[item.id];
                                     if (!selValue) { alert("Select a sheet first"); return; }
-                                    const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.quantity, orderNo: item.orderNo, customerName: item.customerName };
+                                    const pi: PlaceableItem = { id: item.id, productName: item.productName, sku: item.sku || "", gsm: itemGsm, openSizeInches: (size || "0x0").replace(/\*/g,"x"), quantity: item.effectiveQuantity ?? item.quantity, orderNo: item.orderNo, customerName: item.customerName };
                                     openMultipleDialog(selValue, pi);
                                   }} className="inline-flex items-center gap-0.5 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-700">
                                     <Plus className="h-3 w-3" /> Assign
