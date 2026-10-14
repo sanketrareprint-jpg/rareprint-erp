@@ -270,7 +270,16 @@ Unchanged from v2.
    machine-local, so it is evidence for one operator rather than a
    centralised, tamper-proof trail — revisit before superadmin access spreads
    beyond one or two trusted people.
-5. Signup/onboarding wizard wired to the provisioning script (Section 6).
+5. ~~Signup/onboarding wizard wired to the provisioning script (Section 6).~~
+   — built 2026-10-14 as "save, then approve", not instant self-serve: the
+   marketing site's Start free form (`/api/signup`) only saves the request
+   to a separate `rareprint_signups` database; `saas-ops/signups.js approve`
+   provisions the customer, creates their first ADMIN login and prints it
+   once. Keeps the Railway token off the public site and stops fake signups
+   from creating billable servers. Verified end to end on 2026-10-14 (test
+   customer provisioned, admin login worked, stranger signup refused, then
+   deleted). Provisioning needs a stable connection on the operator's PC —
+   five earlier runs died on Wi-Fi drops; retries now cover short ones.
 6. Razorpay subscription billing (Section 4).
 7. Frontend white-labeling via per-deployment env vars (Section 6).
 8. Repo hygiene / split non-product folders out (Section 7).
