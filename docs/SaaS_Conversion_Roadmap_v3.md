@@ -281,7 +281,17 @@ Unchanged from v2.
    deleted). Provisioning needs a stable connection on the operator's PC —
    five earlier runs died on Wi-Fi drops; retries now cover short ones.
 6. Razorpay subscription billing (Section 4).
-7. Frontend white-labeling via per-deployment env vars (Section 6).
+7. ~~Frontend white-labeling via per-deployment env vars (Section 6).~~ —
+   built 2026-10-14. Name comes from Settings > App Branding (admin, with
+   logo upload) > NEXT_PUBLIC_BRAND_NAME / BRAND_NAME (set at approve time) >
+   "RarePrint", in the app and in outgoing WhatsApp/email/PDF text. RarePrint's
+   own deployment sets none of these and is unchanged (verified live).
+   The same pass stopped customer instances reaching RarePrint: owner WhatsApp
+   copies, fallback contact phone, HR inbox and the hardcoded AiSensy key are
+   blanked per customer (customer-env-template.js), and the public cron key
+   fallback was removed. Not covered: theme colours (still RarePrint red), and
+   the AiSensy key in git history should be rotated. demo-test-co had its
+   variables corrected and 22 pending migrations applied the same day.
 8. Repo hygiene / split non-product folders out (Section 7).
 9. Onboard one real, low-risk customer manually first, watching every step,
    before trusting the scripts end-to-end unattended.
