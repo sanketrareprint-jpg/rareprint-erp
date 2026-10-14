@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AccountingNoteType,
@@ -608,7 +609,7 @@ export class AccountsService {
       totalAmount: Number(result.invoice.totalAmount),
       gstAmount: Number(result.invoice.taxAmount),
       balanceAmount: Number(result.invoice.balanceAmount),
-      agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+      agentName: order.salesAgent?.fullName ?? brandTeamName(),
     }).then((sent) => this.prisma.invoice.update({
       where: { id: result.invoice.id },
       data: {
@@ -1539,7 +1540,7 @@ export class AccountsService {
       orderNo:       order.orderNumber,
       product:       order.items.map(i => i.product.name).join(', '),
       status:        WhatsAppService.statusLabel(OrderStatus.READY_FOR_DISPATCH),
-      agentName:     order.salesAgent?.fullName ?? 'Rareprint Team',
+      agentName:     order.salesAgent?.fullName ?? brandTeamName(),
     });
 
     return updated;
@@ -2426,7 +2427,7 @@ export class AccountsService {
 
     const balanceAmount = eligibleOrders.reduce((sum, row) => sum + row.balance, 0);
     const orderNos = eligibleOrders.map(row => row.order.orderNumber).join(', ');
-    const agentName = eligibleOrders[0]?.order.salesAgent?.fullName ?? 'Rareprint Team';
+    const agentName = eligibleOrders[0]?.order.salesAgent?.fullName ?? brandTeamName();
     const sent = await this.whatsapp.sendBalancePaymentReminder({
       customerName: customer.businessName,
       customerPhone: customer.phone,

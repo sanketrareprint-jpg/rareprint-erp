@@ -135,7 +135,7 @@ async function approve(db, id) {
   // run, so the follow-up status update failed with "Connection terminated
   // unexpectedly" and left the request stuck in 'provisioning' (2026-10-14).
   const exitCode = await new Promise((resolve) => {
-    const child = spawn(process.execPath, ['provision-customer.js', request.company_name], {
+    const child = spawn(process.execPath, ['provision-customer.js', request.company_name, request.phone], {
       cwd: import.meta.dirname,
       stdio: 'inherit',
     });

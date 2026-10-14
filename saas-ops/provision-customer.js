@@ -8,7 +8,7 @@
 // production project or database — this only ever creates NEW things.
 //
 // Usage:
-//   node provision-customer.js "Customer Name"
+//   node provision-customer.js "Customer Name" [contact phone]
 //
 // Run this from YOUR OWN machine (PowerShell), not from a Claude sandbox —
 // the migration step below shells out to Prisma, which needs real network
@@ -38,8 +38,11 @@ import { addCustomer, customerSlug } from './lib/registry.js';
 import { provisionFrontend } from './lib/frontend-provision.js';
 
 const customerName = process.argv[2];
+// Optional: the customer's own phone, used as the fallback contact number in
+// their WhatsApp messages (signups.js passes the number from the signup form).
+const contactPhone = process.argv[3] ?? '';
 if (!customerName) {
-  console.error('Usage: node provision-customer.js "Customer Name"');
+  console.error('Usage: node provision-customer.js "Customer Name" [contact phone]');
   process.exit(1);
 }
 
@@ -62,7 +65,7 @@ async function main() {
   console.log(`  backend service id: ${backendService.id}`);
 
   console.log('\n[4/7] Setting environment variables...');
-  const envVars = buildCustomerEnv(databaseUrl);
+  const envVars = buildCustomerEnv(databaseUrl, { brandName: customerName, contactPhone });
   await setServiceVariables(environment.id, backendService.id, envVars);
   console.log(
     `  set ${Object.keys(envVars).length} variables — remember: integration keys (Shiprocket/BigShip/Razorpay/Gmail) are intentionally blank, see customer-env-template.js`

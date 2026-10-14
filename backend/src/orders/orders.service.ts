@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import {
   OrderStatus,
   OrderProductionStage,
@@ -1035,7 +1036,7 @@ export class OrdersService {
         totalAmount: totalAmount.toFixed(0),
         advancePaid: advancePaid.toFixed(0),
         balanceDue: balanceDue.toFixed(0),
-        agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName: fullOrder.salesAgent?.fullName ?? brandTeamName(),
       });
     }
 
@@ -1168,7 +1169,7 @@ export class OrdersService {
         totalAmount: totalAmount.toFixed(0),
         advancePaid: advancePaid.toFixed(0),
         balanceDue: (totalAmount - advancePaid).toFixed(0),
-        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName: order.salesAgent?.fullName ?? brandTeamName(),
       });
     } catch (err) {
       console.error(`Order-updated WhatsApp failed for order ${orderId}:`, err);
@@ -2361,7 +2362,7 @@ export class OrdersService {
             orderNo: fullOrder.orderNumber,
             product,
             status: `Shipment being arranged | ${dispatchNotes}`,
-            agentName: fullOrder.salesAgent?.fullName ?? 'Rareprint Team',
+            agentName: fullOrder.salesAgent?.fullName ?? brandTeamName(),
           });
         }
       });

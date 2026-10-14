@@ -4,6 +4,7 @@
 // feedback carry a sales lead" rule, and the WhatsApp template parameters.
 // Kept dependency-free (no Prisma/Nest) so it can be unit tested directly,
 // same pattern as complaints.calc.ts.
+import { brandName } from '../common/brand';
 
 // Delivered orders older than this are not offered for a feedback call.
 export const FEEDBACK_WINDOW_DAYS = 60;
@@ -105,7 +106,7 @@ export function validateFeedback(
   ) {
     return {
       ok: false,
-      error: 'Please answer "Would you recommend Rareprint to others?"',
+      error: `Please answer "Would you recommend ${brandName()} to others?"`,
     };
   }
 

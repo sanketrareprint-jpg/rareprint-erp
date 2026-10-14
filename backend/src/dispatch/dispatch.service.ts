@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import { OrderProductionStage, OrderStatus, PaymentVerificationStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShiprocketService, type ShiprocketPickupLocation } from '../shiprocket/shiprocket.service';
@@ -1735,7 +1736,7 @@ export class DispatchService {
         orderNo:       order.orderNumber,
         product:       productNames,
         status:        statusMsg,
-        agentName:     order.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName:     order.salesAgent?.fullName ?? brandTeamName(),
       });
     }
 
@@ -1829,7 +1830,7 @@ export class DispatchService {
         orderNo: order.orderNumber,
         product: productNames,
         status: `Dispatched by transport${input.lrNumber ? ` | LR: ${input.lrNumber}` : ''}`,
-        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName: order.salesAgent?.fullName ?? brandTeamName(),
       });
     }
 
@@ -1910,7 +1911,7 @@ export class DispatchService {
           orderNo: order.orderNumber,
           product: productNames,
           status: `${label} delivery OTP: ${otp}. Share this only after receiving the parcel.`,
-          agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+          agentName: order.salesAgent?.fullName ?? brandTeamName(),
         });
       } catch (e) {
         this.logger.error(`Direct OTP WhatsApp send threw for order ${order.orderNumber}: ${e instanceof Error ? e.message : e}`);
@@ -1978,7 +1979,7 @@ export class DispatchService {
         orderNo: shipment.order.orderNumber,
         product: shipment.order.items.map((i) => i.product.name).join(', '),
         status: 'Delivered',
-        agentName: shipment.order.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName: shipment.order.salesAgent?.fullName ?? brandTeamName(),
       });
     }
 
@@ -2342,7 +2343,7 @@ export class DispatchService {
         orderNo: order.orderNumber,
         product: order.items.map(i => i.product.name).join(', '),
         status: `Dispatched via ${carrierName}${trackingRef ? `. Tracking: ${trackingRef}` : ''}`,
-        agentName: order.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName: order.salesAgent?.fullName ?? brandTeamName(),
       });
     }
 

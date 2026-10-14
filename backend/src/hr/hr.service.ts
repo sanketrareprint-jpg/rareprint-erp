@@ -29,6 +29,7 @@
 // and capped at the full base salary (overtime doesn't multiply pay here —
 // that mirrors the old sheet, which had a separate manual overtime add-on).
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { brandName, hrNotifyEmail } from '../common/brand';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Employee, EmployeeKraType, LeaveType, OrderStatus, Prisma } from '@prisma/client';
@@ -43,7 +44,6 @@ export const SUPERADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 // Where the "employee accepted their HR agreement" confirmation email goes.
 // Separate from SUPERADMIN_EMAIL (approval gating) — this is just an FYI
 // notification, sent to the shared HR inbox rather than Sanket personally.
-const HR_NOTIFY_EMAIL = 'hr.rareprint@gmail.com';
 
 // Editing any of these on an already-approved employee means Sanket needs to
 // re-approve before salary can be generated again — they all feed the salary
@@ -747,15 +747,15 @@ export class HrService {
     const link = `${frontendOrigin.replace(/\/$/, '')}/hr-agreement/${token}`;
     const body =
       `Hi ${employee.fullName},\n\n` +
-      `Please review and accept the RarePrint HR agreement (${terms.title}) using the secure link below:\n\n` +
+      `Please review and accept the ${brandName()} HR agreement (${terms.title}) using the secure link below:\n\n` +
       `${link}\n\n` +
       `This link is unique to you — no login or OTP needed, just review the terms and confirm by typing your name.\n\n` +
-      `Regards,\nRarePrint`;
+      `Regards,\n${brandName()}`;
 
     // Send first, persist second — if Gmail fails (expired token, quota,
     // etc.) we must not mark this as "sent" in the DB, or the UI will show
     // "awaiting acceptance" for a link that was never actually delivered.
-    await this.gmail.sendMail(employee.email, `RarePrint HR Agreement — ${terms.title}`, body);
+    await this.gmail.sendMail(employee.email, `${brandName()} HR Agreement — ${terms.title}`, body);
 
     await this.prisma.employee.update({
       where: { id: employeeId },
@@ -812,15 +812,20 @@ export class HrService {
     // Best-effort notification — the acceptance itself is already committed
     // above, so a Gmail hiccup here must not fail the employee's request.
     const notifyBody =
-      `${employee.fullName} (${employee.employeeCode}) just accepted the RarePrint HR agreement` +
+      `${employee.fullName} (${employee.employeeCode}) just accepted the ${brandName()} HR agreement` +
       `${employee.agreementTerms?.title ? ` (${employee.agreementTerms.title})` : ''}.\n\n` +
       `Signed as: ${updated.agreementSignatureName}\n` +
       `Accepted at: ${updated.agreementAcceptedAt?.toLocaleString('en-IN')}\n` +
       `IP address: ${updated.agreementAcceptedIp ?? 'unknown'}\n\n` +
       `An ID proof scan was uploaded and attached to their HR record — check the Employee Master in the ERP (HR section) to view it.`;
-    this.gmail
-      .sendMail(HR_NOTIFY_EMAIL, `HR Agreement Accepted — ${employee.fullName}`, notifyBody)
-      .catch((err) => this.logger.warn(`Failed to send agreement-acceptance notification: ${err?.message ?? err}`));
+    // Only where this deployment has an HR inbox (common/brand.ts) — never
+    // RarePrint's inbox for another company's employee.
+    const hrInbox = hrNotifyEmail();
+    if (hrInbox) {
+      this.gmail
+        .sendMail(hrInbox, `HR Agreement Accepted — ${employee.fullName}`, notifyBody)
+        .catch((err) => this.logger.warn(`Failed to send agreement-acceptance notification: ${err?.message ?? err}`));
+    }
 
     return { alreadyAccepted: false, acceptedAt: updated.agreementAcceptedAt };
   }

@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { brandName } from '../common/brand';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
@@ -239,14 +240,14 @@ export class AuthService {
     const link = `${frontendOrigin.replace(/\/$/, '')}/reset-password/${token}`;
     const body =
       `Hi ${user.fullName},\n\n` +
-      `We received a request to reset your RarePrint ERP password. Click the link below to set a new one:\n\n` +
+      `We received a request to reset your ${brandName()} ERP password. Click the link below to set a new one:\n\n` +
       `${link}\n\n` +
       `This link expires in 1 hour and can only be used once. If you didn't request this, you can safely ignore this email — your password won't change.\n\n` +
-      `Regards,\nRarePrint`;
+      `Regards,\n${brandName()}`;
 
     // Send first, persist second — if Gmail fails we must not store a
     // token the user was never actually able to see.
-    await this.gmail.sendMail(user.email, 'Reset your RarePrint ERP password', body);
+    await this.gmail.sendMail(user.email, `Reset your ${brandName()} ERP password`, body);
 
     await this.prisma.user.update({
       where: { id: user.id },

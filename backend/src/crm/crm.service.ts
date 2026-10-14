@@ -1,5 +1,6 @@
 ﻿// File: backend/src/crm/crm.service.ts
 import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { fallbackContactPhone } from '../common/brand';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeadStatus, LeadSource, ActivityType } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -652,7 +653,7 @@ export class CrmService {
           customerName: lead.name,
           customerPhone: lead.phone,
           agentName: agent.fullName,
-          agentPhone: agent.phone ?? '9637318960',
+          agentPhone: agent.phone ?? fallbackContactPhone(),
         })
       : false;
 
@@ -661,7 +662,7 @@ export class CrmService {
         data: {
           leadId: lead.id,
           type: ActivityType.WHATSAPP_SENT,
-          description: `Assignment WhatsApp sent with agent ${agent.fullName} (${agent.phone ?? '9637318960'})`,
+          description: `Assignment WhatsApp sent with agent ${agent.fullName} (${agent.phone ?? fallbackContactPhone()})`,
           createdById: agent.id,
         },
       });
@@ -671,7 +672,7 @@ export class CrmService {
       status: 'lead_created',
       leadId: lead.id,
       agentName: agent.fullName,
-      agentPhone: agent.phone ?? '9637318960',
+      agentPhone: agent.phone ?? fallbackContactPhone(),
       assignmentSent,
       assignmentSkippedReason: isNewContactEvent ? undefined : 'not_contact_created_event',
     };

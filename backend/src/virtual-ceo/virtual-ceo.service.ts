@@ -1,5 +1,6 @@
 // backend/src/virtual-ceo/virtual-ceo.service.ts
 import { Injectable, Logger } from '@nestjs/common';
+import { brandName } from '../common/brand';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -1161,7 +1162,7 @@ export class VirtualCeoService {
       lines.push('');
     }
 
-    lines.push(`_Open the RarePrint ERP to take action ✅_`);
+    lines.push(`_Open the ${brandName()} ERP to take action ✅_`);
 
     return lines.join('\n');
   }

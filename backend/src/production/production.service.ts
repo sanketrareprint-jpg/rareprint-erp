@@ -1,5 +1,6 @@
 // backend/src/production/production.service.ts
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import { OrderProductionStage, OrderStatus, ProductionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -268,7 +269,7 @@ export class ProductionService {
             orderNo:       order.orderNumber,
             product:       productNames,
             status:        'Printing 🖨️',
-            agentName:     order.salesAgent?.fullName ?? 'Rareprint Team',
+            agentName:     order.salesAgent?.fullName ?? brandTeamName(),
           });
         }
       }
@@ -382,7 +383,7 @@ export class ProductionService {
         orderNo:       item.order.orderNumber,
         product:       productNames,
         status:        stageLabel,
-        agentName:     item.order.salesAgent?.fullName ?? 'Rareprint Team',
+        agentName:     item.order.salesAgent?.fullName ?? brandTeamName(),
       });
     }
 

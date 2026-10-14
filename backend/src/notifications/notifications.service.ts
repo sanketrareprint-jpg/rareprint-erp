@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -513,7 +514,7 @@ export class NotificationsService {
         ? this.reassuranceCampaigns.indexOf(lastLog.campaignName)
         : -1;
       const campaignName = this.reassuranceCampaigns[(lastIndex + 1) % this.reassuranceCampaigns.length];
-      const agentName = order.salesAgent?.fullName ?? 'Rareprint Team';
+      const agentName = order.salesAgent?.fullName ?? brandTeamName();
 
       const success = await this.whatsapp.sendOrderReassurance({
         campaignName,

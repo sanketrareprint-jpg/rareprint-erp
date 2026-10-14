@@ -1,5 +1,6 @@
 // backend/src/whatsapp/whatsapp.controller.ts
 import { Controller, ForbiddenException, Get, Post, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
@@ -69,7 +70,7 @@ export class WhatsAppController {
       orderNo:       order.orderNumber,
       product,
       status,
-      agentName:     order.salesAgent?.fullName ?? 'Rareprint Team',
+      agentName:     order.salesAgent?.fullName ?? brandTeamName(),
     });
 
     return { success: sent };

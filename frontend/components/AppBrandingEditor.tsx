@@ -29,15 +29,19 @@ export function AppBrandingEditor() {
   useEffect(() => {
     if (getStoredUser()?.role !== "ADMIN") { setLoading(false); return; }
     setIsAdmin(true);
+    // A superseded load must not land after the admin starts typing and
+    // wipe their edit (React dev mode runs this effect twice).
+    let cancelled = false;
     fetch(`${API_BASE_URL}/branding`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data: ServerBranding | null) => {
-        if (!data) return;
+        if (cancelled || !data) return;
         setServer(data);
         setName(data.appName ?? "");
       })
-      .catch(() => setMessage({ ok: false, text: "Could not load the current branding." }))
-      .finally(() => setLoading(false));
+      .catch(() => { if (!cancelled) setMessage({ ok: false, text: "Could not load the current branding." }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   if (!isAdmin) return null;

@@ -21,7 +21,14 @@
 // degrade gracefully with these unset until the customer provides their own
 // (that's a real thing to verify on the first disposable test environment,
 // not assume).
+//
+// AISENSY_API_KEY must be here even though nothing else in this group is
+// WhatsApp: the backend falls back to RarePrint's own key when it is UNSET
+// (whatsapp.service.ts, crm.service.ts), so leaving it out sends a customer's
+// WhatsApp messages through RarePrint's AiSensy account. Found 2026-10-14 on
+// demo-test-co, which predates this line.
 const BLANK_UNTIL_CUSTOMER_PROVIDES_OWN = [
+  'AISENSY_API_KEY',
   'SHIPROCKET_EMAIL',
   'SHIPROCKET_PASSWORD',
   'SHIPROCKET_PICKUP_PINCODE',
@@ -54,20 +61,40 @@ const BLANK_UNTIL_CUSTOMER_PROVIDES_OWN = [
 // over that customer's data. Setting it to an empty string tells
 // backend/src/common/super-admin.ts this deployment has no owner-by-email,
 // leaving the ADMIN role as the only thing that grants access there.
-const BLANK_RAREPRINT_INTERNAL_ONLY = ['VCEO_PRAJAKTA_PHONE', 'VCEO_SANKET_PHONE', 'OWNER_EMAIL'];
+//
+// OWNER_WHATSAPP_PHONE and HR_NOTIFY_EMAIL follow the same rule
+// (backend/src/common/brand.ts): unset means RarePrint's own number/inbox, so
+// a customer without the empty value would copy every order notice and event
+// wish to RarePrint's owner, and tell RarePrint's HR inbox about another
+// company's employees.
+const BLANK_RAREPRINT_INTERNAL_ONLY = [
+  'VCEO_PRAJAKTA_PHONE',
+  'VCEO_SANKET_PHONE',
+  'OWNER_EMAIL',
+  'OWNER_WHATSAPP_PHONE',
+  'HR_NOTIFY_EMAIL',
+];
 
 import crypto from 'node:crypto';
 
 /**
  * @param {string} databaseUrl - this customer's own Postgres connection
  *   string, from Railway, after provisioning their database.
+ * @param {{ brandName: string, contactPhone?: string }} brand - the business
+ *   name (BRAND_NAME: their name in WhatsApp/email/PDF text instead of
+ *   RarePrint's) and, when known, their own phone (FALLBACK_CONTACT_PHONE:
+ *   given to a lead whose agent has no phone saved — blank otherwise, never
+ *   RarePrint's number).
  * @returns {Record<string, string>} full variable set to write onto the
  *   customer's Railway service.
  */
-export function buildCustomerEnv(databaseUrl) {
+export function buildCustomerEnv(databaseUrl, { brandName, contactPhone = '' }) {
+  if (!brandName?.trim()) throw new Error('buildCustomerEnv needs the customer brand name.');
   const vars = {
     DATABASE_URL: databaseUrl,
     JWT_SECRET: crypto.randomBytes(32).toString('hex'),
+    BRAND_NAME: brandName.trim(),
+    FALLBACK_CONTACT_PHONE: contactPhone.trim(),
   };
   for (const key of [...BLANK_UNTIL_CUSTOMER_PROVIDES_OWN, ...BLANK_RAREPRINT_INTERNAL_ONLY]) {
     vars[key] = '';

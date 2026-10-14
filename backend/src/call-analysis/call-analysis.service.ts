@@ -1,5 +1,6 @@
 ﻿import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { brandName } from '../common/brand';
 
 type JwtUser = { id: string; role: string; fullName?: string };
 
@@ -268,7 +269,7 @@ export class CallAnalysisService {
   }
 
   private buildPrompt(payload: { agentName: string; customerName: string; callType: string; duration?: string; transcript: string }) {
-    return `You are an expert sales coach analyzing a real sales call for RarePrint — a printing business in India.
+    return `You are an expert sales coach analyzing a real sales call for ${brandName()} — a printing business in India.
 
 Agent Name: ${payload.agentName}
 Customer Name: ${payload.customerName}

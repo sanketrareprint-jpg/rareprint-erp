@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { setBrandSettingsName } from '../common/brand';
 
 export type CustomFieldType = 'text' | 'number' | 'date' | 'select' | 'textarea';
 
@@ -163,8 +164,21 @@ export const DEFAULT_ERP_CONFIG: ErpConfig = {
 };
 
 @Injectable()
-export class ErpConfigService {
+export class ErpConfigService implements OnModuleInit {
+  private readonly logger = new Logger(ErpConfigService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  // Outgoing WhatsApp/email/PDF text reads the brand name synchronously
+  // (common/brand.ts), so load the Settings name once at startup; every
+  // change goes through setBrandingName below, which refreshes it too.
+  async onModuleInit() {
+    try {
+      setBrandSettingsName((await this.getBranding()).appName);
+    } catch (err) {
+      this.logger.warn(`Could not load the app branding name: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   async getConfig(): Promise<ErpConfig> {
     const row = await this.prisma.systemConfig.findUnique({ where: { key: DB_KEY } });
@@ -231,6 +245,7 @@ export class ErpConfigService {
     const appName = typeof input === 'string' ? input.trim() : '';
     if (appName.length > MAX_BRAND_NAME) throw new BadRequestException(`Name must be at most ${MAX_BRAND_NAME} characters`);
     await this.setOrClear(BRANDING_NAME_KEY, appName);
+    setBrandSettingsName(appName || null);
     return this.getBranding();
   }
 

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { brandName } from '../common/brand';
 import axios, { type AxiosInstance } from 'axios';
 import { createReadStream, promises as fs } from 'fs';
 import os from 'os';
@@ -1448,7 +1449,7 @@ export async function generateInvoicePdf(params: {
     // Header
     doc.rect(50, 50, 495, 60).fill('#1a1a2e');
     doc.fillColor('white').font('Helvetica-Bold').fontSize(22).text('TAX INVOICE', 60, 68);
-    doc.fillColor('#cccccc').font('Helvetica').fontSize(10).text('RarePrint — Dispatch Invoice', 60, 95);
+    doc.fillColor('#cccccc').font('Helvetica').fontSize(10).text(`${brandName()} — Dispatch Invoice`, 60, 95);
 
     // Invoice details box
     doc.fillColor('black').rect(50, 125, 495, 90).stroke('#cccccc');
@@ -1498,7 +1499,7 @@ export async function generateInvoicePdf(params: {
     // Footer
     doc.fillColor('#666666').font('Helvetica').fontSize(8);
     doc.text('This is a system-generated invoice for courier dispatch purposes.', 50, footerY, { align: 'center', width: 495 });
-    doc.text('RarePrint — Print Solutions', 50, footerY + 12, { align: 'center', width: 495 });
+    doc.text(`${brandName()} — Print Solutions`, 50, footerY + 12, { align: 'center', width: 495 });
 
     doc.end();
   });

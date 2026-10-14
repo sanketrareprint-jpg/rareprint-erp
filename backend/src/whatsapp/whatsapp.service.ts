@@ -1,5 +1,6 @@
 // backend/src/whatsapp/whatsapp.service.ts
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { brandName, brandTeamName, fallbackContactPhone, ownerWhatsappPhone } from '../common/brand';
 import { complaintFormUrl } from '../common/complaint-link';
 import { PrismaService } from '../prisma/prisma.service';
 import { whatsappRequestUser } from './whatsapp-request-context';
@@ -459,7 +460,7 @@ export class WhatsAppService {
         params.customerName || 'Customer',
         params.orderNos,
         params.balanceAmount.toFixed(2),
-        params.agentName || 'Rareprint Team',
+        params.agentName || brandTeamName(),
       ],
     });
   }
@@ -486,7 +487,7 @@ export class WhatsAppService {
         params.totalAmount.toFixed(2),
         params.gstAmount.toFixed(2),
         params.balanceAmount.toFixed(2),
-        params.agentName || 'Rareprint Team',
+        params.agentName || brandTeamName(),
       ],
     });
   }
@@ -667,7 +668,7 @@ export class WhatsAppService {
       templateParams: [
         params.customerName,
         params.orderNo,
-        params.agentName || 'Rareprint Team',
+        params.agentName || brandTeamName(),
       ],
     });
   }
@@ -685,8 +686,8 @@ export class WhatsAppService {
       customerPhone: params.customerPhone,
       templateParams: [
         params.customerName || 'Customer',
-        params.agentName || 'Rareprint Team',
-        params.agentPhone || '9637318960',
+        params.agentName || brandTeamName(),
+        params.agentPhone || fallbackContactPhone(),
       ],
       tags: agentTag ? [agentTag] : [],
     });
@@ -796,10 +797,12 @@ export class WhatsAppService {
     balanceDue: string;
     agentName: string;
   }): Promise<void> {
-    const OWNER_PHONE = '919637318960';
+    // Owner copy only where this deployment has an owner number (see
+    // common/brand.ts) — never RarePrint's phone on a customer's instance.
+    const OWNER_PHONE = ownerWhatsappPhone();
     const TEMPLATE = 'order_created_erp';
 
-    const destinations = [OWNER_PHONE];
+    const destinations = OWNER_PHONE ? [OWNER_PHONE] : [];
 
     // Also send to customer if they have a phone
     if (params.customerPhone) {
@@ -1082,15 +1085,15 @@ export class WhatsAppService {
     imageUrl: string;
     occasionLabel: string;
   }): Promise<{ sentToPerson: boolean; sentToOwner: boolean; personError?: string; ownerError?: string }> {
-    const OWNER_PHONE = '919637318960';
-    const SIGNOFF_NAME = 'RarePrint';
+    const OWNER_PHONE = ownerWhatsappPhone();
+    const SIGNOFF_NAME = brandName();
     const campaignName = process.env.AISENSY_EVENTS_CAMPAIGN ?? 'events_wish_erp';
     const personPhone = this.normalizePhone(params.customerPhone);
 
     const destinations: Array<{ phone: string; isOwner: boolean }> = [];
     if (personPhone) destinations.push({ phone: personPhone, isOwner: false });
     else this.logger.warn(`sendEventWish: invalid/missing WhatsApp number "${params.customerPhone}" for ${params.customerName}`);
-    if (!personPhone || personPhone !== OWNER_PHONE) destinations.push({ phone: OWNER_PHONE, isOwner: true });
+    if (OWNER_PHONE && (!personPhone || personPhone !== OWNER_PHONE)) destinations.push({ phone: OWNER_PHONE, isOwner: true });
 
     let sentToPerson = false;
     let sentToOwner = false;

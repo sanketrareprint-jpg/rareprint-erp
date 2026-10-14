@@ -1,5 +1,6 @@
 // backend/src/billing/billing.service.ts
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { brandTeamName } from '../common/brand';
 import { createHmac, timingSafeEqual } from 'crypto';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
@@ -1240,7 +1241,7 @@ export class BillingService {
       totalAmount: Number(invoice.totalAmount),
       balanceAmount: Number(invoice.balanceAmount),
       gstAmount: Number(invoice.taxAmount),
-      agentName: invoice.order.salesAgent?.fullName ?? 'Rareprint Team',
+      agentName: invoice.order.salesAgent?.fullName ?? brandTeamName(),
     });
 
     return { sent, withPdf: false };
