@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useBranding } from "@/lib/branding";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
@@ -275,6 +276,7 @@ function ReviewModal({
 // ─── Locked Screen ────────────────────────────────────────────────────────────
 
 function LockedScreen({ lockedAt, reason }: { lockedAt?: string; reason?: string }) {
+  const branding = useBranding();
   const timeStr = lockedAt ? new Date(lockedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   return (
     <div style={{
@@ -304,7 +306,7 @@ function LockedScreen({ lockedAt, reason }: { lockedAt?: string; reason?: string
             Contact <strong>Sanket (Admin)</strong> to unlock your account from the Virtual CEO → CEO Settings panel.
           </div>
         </div>
-        <div style={{ fontSize: 11, color: "#cbd5e1" }}>RarePrint ERP · Virtual CEO Enforcement</div>
+        <div style={{ fontSize: 11, color: "#cbd5e1" }}>{branding.name} ERP · Virtual CEO Enforcement</div>
       </div>
     </div>
   );

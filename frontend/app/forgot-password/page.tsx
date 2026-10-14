@@ -1,5 +1,8 @@
 "use client";
 
+import { BrandLogo } from "@/components/BrandLogo";
+import { useBranding } from "@/lib/branding";
+
 import { API_BASE_URL } from "@/lib/api";
 import { fetchWithRetry, describeFetchError } from "@/lib/apiFetch";
 import { ArrowLeft, Loader2, Mail, MailCheck } from "lucide-react";
@@ -7,6 +10,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 
 export default function ForgotPasswordPage() {
+  const branding = useBranding();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,12 +58,11 @@ export default function ForgotPasswordPage() {
             className="inline-flex flex-col items-center gap-3 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
           >
             <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full shadow-lg shadow-brand-600/30">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/rareprint-icon.png" alt="RarePrint" className="h-full w-full object-contain" />
+              <BrandLogo branding={branding} size="100%" />
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                RarePrint ERP
+                {branding.name} ERP
               </h1>
               <p className="mt-1 text-sm text-slate-600">
                 Reset your password

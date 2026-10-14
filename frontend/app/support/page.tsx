@@ -3,6 +3,7 @@
 // their order status WhatsApp (?t=<signed order token>, see backend
 // common/complaint-link.ts); submitting registers a ticket in Complaints.
 import React, { Suspense, useEffect, useState } from "react";
+import { useBranding } from "@/lib/branding";
 import { useSearchParams } from "next/navigation";
 import { MessageSquareWarning, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
@@ -27,6 +28,7 @@ async function readError(res: Response, fallback: string) {
 }
 
 function SupportForm() {
+  const branding = useBranding();
   const token = useSearchParams().get("t") ?? "";
   const [data, setData] = useState<FormData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,7 +78,7 @@ function SupportForm() {
       <div className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-4">
         <div className="flex items-center gap-2 text-slate-800">
           <MessageSquareWarning size={22} />
-          <h1 className="text-lg font-bold">RarePrint — Complaint / Query</h1>
+          <h1 className="text-lg font-bold">{branding.name} — Complaint / Query</h1>
         </div>
 
         {loading && (

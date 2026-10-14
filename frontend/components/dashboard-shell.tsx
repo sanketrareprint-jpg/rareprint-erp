@@ -19,6 +19,8 @@ import { useStoredValue } from "@/lib/useStoredValue";
 import { useActivityTracker } from "@/lib/useActivityTracker";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
 import { DialerDeskPopup } from "@/components/DialerDeskPopup";
+import { BrandLogo } from "@/components/BrandLogo";
+import { useBranding } from "@/lib/branding";
 
 type Role = "ADMIN" | "AGENT" | "SALES_AGENT" | "ACCOUNTS" | "PRODUCTION" | "DISPATCH" | "DESIGNER";
 interface NavItem { label: string; href: string; icon: React.ElementType; }
@@ -255,6 +257,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // authenticated page load. See CLAUDE.md history / team-history.md for
   // the incident this was fixed under (2026-09-19).
   const [user, setUser] = useState<StoredUser | null>(null);
+  const branding = useBranding();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // Read via useStoredValue so the first render matches the server HTML —
   // reading localStorage in a useState initializer caused hydration error #418.
@@ -591,10 +594,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         >
           <Menu size={22} />
         </button>
-        <Link href="/dashboard" className="erp-mobile-brand" aria-label="RarePrint dashboard">
-          <span className="erp-mobile-logo"><img src="/rareprint-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>
+        <Link href="/dashboard" className="erp-mobile-brand" aria-label={`${branding.name} dashboard`}>
+          <span className="erp-mobile-logo"><BrandLogo branding={branding} size="100%" /></span>
           <span>
-            <strong>RarePrint</strong>
+            <strong>{branding.name}</strong>
             <small>{role.replace("_", " ")}</small>
           </span>
         </Link>
@@ -635,15 +638,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
           marginBottom: "16px", paddingLeft: "8px", paddingRight: "8px", width: "100%",
         }}>
-          <img src="/rareprint-icon.png" alt="RarePrint" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
+          <BrandLogo branding={branding} size={30} />
           {!collapsed && (
-            <span style={{
+            <span title={branding.name} style={{
               fontSize: "15px", fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap",
+              maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis",
               fontFamily: "'Arial Black', Arial, Helvetica, sans-serif",
               color: "#ee1c25", letterSpacing: "0.2px",
               textShadow: "0 1px 0 rgba(0,0,0,0.12)",
             }}>
-              RarePrint
+              {branding.name}
             </span>
           )}
         </div>
@@ -816,9 +820,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <div className="erp-mobile-menu" onClick={(event) => event.stopPropagation()}>
             <div className="erp-mobile-menu-head">
               <div className="erp-mobile-brand">
-                <span className="erp-mobile-logo"><img src="/rareprint-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>
+                <span className="erp-mobile-logo"><BrandLogo branding={branding} size="100%" /></span>
                 <span>
-                  <strong>RarePrint ERP</strong>
+                  <strong>{branding.name} ERP</strong>
                   <small>{name}</small>
                 </span>
                 {coins !== null && (

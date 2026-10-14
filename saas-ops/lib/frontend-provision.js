@@ -66,7 +66,9 @@ async function allowOriginOnBackend(environmentId, backendServiceId, origin) {
  * does, because provision-customer.js is creating an entry that doesn't
  * exist yet while provision-frontend.js updates one that does.
  */
-export async function provisionFrontend({ slug, environmentId, backendServiceId }) {
+export async function provisionFrontend({ slug, customerName, environmentId, backendServiceId }) {
+  // Without it the customer's app would fall back to showing "RarePrint".
+  if (!customerName?.trim()) throw new Error('provisionFrontend needs the customer name for the app branding.');
   // The backend needs a public domain before the frontend can be built
   // against it. Railway generates none on its own, which is why customers
   // provisioned before this existed had theirs clicked into being by hand.
@@ -90,8 +92,9 @@ export async function provisionFrontend({ slug, environmentId, backendServiceId 
     name: projectName,
     rootDirectory: process.env.FRONTEND_ROOT_DIRECTORY ?? 'frontend',
     apiUrl: backendUrl,
+    brandName: customerName.trim(),
   });
-  console.log(`  created Vercel project ${projectName} (${project.id}) with NEXT_PUBLIC_API_URL=${backendUrl}`);
+  console.log(`  created Vercel project ${projectName} (${project.id}) with NEXT_PUBLIC_API_URL=${backendUrl}, NEXT_PUBLIC_BRAND_NAME=${customerName.trim()}`);
 
   const deployment = await createDeployment({ projectName });
   console.log(`  deployment ${deployment.id} started — a Next.js build takes several minutes...`);

@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
+import { useBranding } from "@/lib/branding";
 import { useParams } from "next/navigation";
 import { FileSignature, CheckCircle2, Loader2, AlertTriangle, Paperclip } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
@@ -14,6 +15,7 @@ type AgreementData = {
 };
 
 export default function HrAgreementClient() {
+  const branding = useBranding();
   const params = useParams();
   const token = String(params?.token ?? "");
 
@@ -75,7 +77,7 @@ export default function HrAgreementClient() {
       <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-4">
         <div className="flex items-center gap-2 text-slate-800">
           <FileSignature size={22} />
-          <h1 className="text-lg font-bold">RarePrint — HR Agreement</h1>
+          <h1 className="text-lg font-bold">{branding.name} — HR Agreement</h1>
         </div>
 
         {loading && (

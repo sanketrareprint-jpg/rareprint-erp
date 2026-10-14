@@ -1,5 +1,8 @@
 "use client";
 
+import { BrandLogo } from "@/components/BrandLogo";
+import { useBranding } from "@/lib/branding";
+
 import {
   AUTH_TOKEN_KEY,
   AUTH_USER_KEY,
@@ -23,6 +26,7 @@ type LoginResponse = {
 };
 
 export default function LoginPage() {
+  const branding = useBranding();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -118,12 +122,11 @@ export default function LoginPage() {
             className="inline-flex flex-col items-center gap-3 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
           >
             <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full shadow-lg shadow-brand-600/30">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/rareprint-icon.png" alt="RarePrint" className="h-full w-full object-contain" />
+              <BrandLogo branding={branding} size="100%" />
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                RarePrint ERP
+                {branding.name} ERP
               </h1>
               <p className="mt-1 text-sm text-slate-600">
                 Sign in to your workspace

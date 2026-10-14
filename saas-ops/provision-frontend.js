@@ -35,6 +35,7 @@ try {
   console.log(`[provision-frontend] ${customer.name} (${customer.slug}) — environment ${customer.environmentId}`);
   const result = await provisionFrontend({
     slug: customer.slug,
+    customerName: customer.name,
     environmentId: customer.environmentId,
     backendServiceId: customer.backendServiceId,
   });

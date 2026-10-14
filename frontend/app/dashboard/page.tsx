@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useBranding } from "@/lib/branding";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
 import { AgentCallStats } from "@/components/AgentCallStats";
@@ -158,6 +159,7 @@ const statusColors: Record<string, string> = {
 const MEDAL = ["🥇","🥈","🥉"];
 
 export default function DashboardPage() {
+  const branding = useBranding();
   const router = useRouter();
   const [stats,     setStats]     = useState<DashboardStats | null>(null);
   const [agents,    setAgents]    = useState<AgentRow[]>([]);
@@ -418,7 +420,7 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="flex items-baseline gap-2">
           <h1 className="text-sm font-bold text-slate-900">Dashboard</h1>
-          <p className="text-xs text-slate-400">RarePrint ERP — Operations Overview</p>
+          <p className="text-xs text-slate-400">{branding.name} ERP — Operations Overview</p>
         </div>
 
         {whatsappStatus?.alert && (

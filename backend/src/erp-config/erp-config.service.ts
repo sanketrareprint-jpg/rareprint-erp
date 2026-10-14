@@ -55,6 +55,21 @@ const MAX_NAV_HREFS = 200;
 
 export type NavGroupConfig = { id: string; label: string; hrefs: string[] };
 
+// App branding set by an admin in Settings — the name and logo shown in the
+// app shell and on the login pages. No row = the deployment's own default
+// (NEXT_PUBLIC_BRAND_NAME on the frontend, set per customer at approve time,
+// else "RarePrint"). Two rows so saving the name never rewrites the logo.
+const BRANDING_NAME_KEY = 'app_branding_name';
+const BRANDING_LOGO_KEY = 'app_branding_logo';
+export const MAX_BRAND_NAME = 60;
+export const MAX_BRAND_LOGO_BYTES = 300 * 1024;
+// Raster only: an SVG data URL is safe inside <img>, but the logo is also
+// served to the public login page, so keep it to formats that cannot carry
+// markup at all.
+const BRAND_LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+export type AppBranding = { appName: string | null; logoUrl: string | null };
+
 /** Validates admin-submitted sidebar categories. Each link may sit in one category only. */
 export function normalizeNavGroups(input: unknown): NavGroupConfig[] {
   if (!Array.isArray(input)) throw new BadRequestException('groups must be an array');
@@ -198,6 +213,43 @@ export class ErpConfigService {
       create: { key: NAV_GROUPS_KEY, value },
     });
     return { groups };
+  }
+
+  async getBranding(): Promise<AppBranding> {
+    const rows = await this.prisma.systemConfig.findMany({
+      where: { key: { in: [BRANDING_NAME_KEY, BRANDING_LOGO_KEY] } },
+    });
+    const value = (key: string) => rows.find((r) => r.key === key)?.value?.trim() || null;
+    return { appName: value(BRANDING_NAME_KEY), logoUrl: value(BRANDING_LOGO_KEY) };
+  }
+
+  /** Empty or null clears it, so the deployment's default name shows again. */
+  async setBrandingName(input: unknown): Promise<AppBranding> {
+    if (input !== null && typeof input !== 'string') throw new BadRequestException('appName must be text');
+    // typeof, not `?? ''`: Railway's nest build has no strictNullChecks, so
+    // the null check above does not narrow `unknown` there.
+    const appName = typeof input === 'string' ? input.trim() : '';
+    if (appName.length > MAX_BRAND_NAME) throw new BadRequestException(`Name must be at most ${MAX_BRAND_NAME} characters`);
+    await this.setOrClear(BRANDING_NAME_KEY, appName);
+    return this.getBranding();
+  }
+
+  /** null file clears it, so the default logo shows again. */
+  async setBrandingLogo(file: Express.Multer.File | null): Promise<AppBranding> {
+    if (file) {
+      if (!BRAND_LOGO_TYPES.has(file.mimetype)) throw new BadRequestException('Logo must be a PNG, JPG or WebP image');
+      if (file.size > MAX_BRAND_LOGO_BYTES) throw new BadRequestException('Logo must be 300 KB or smaller');
+    }
+    await this.setOrClear(BRANDING_LOGO_KEY, file ? `data:${file.mimetype};base64,${file.buffer.toString('base64')}` : '');
+    return this.getBranding();
+  }
+
+  private async setOrClear(key: string, value: string) {
+    if (!value) {
+      await this.prisma.systemConfig.deleteMany({ where: { key } });
+      return;
+    }
+    await this.prisma.systemConfig.upsert({ where: { key }, update: { value }, create: { key, value } });
   }
 
   private mergeConfig(input: Partial<ErpConfig>): ErpConfig {

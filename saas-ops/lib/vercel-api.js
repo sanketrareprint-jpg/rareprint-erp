@@ -78,7 +78,7 @@ export async function getProject(projectName) {
  * first build inlines the right value. Environment variables are passed at
  * creation for exactly that reason — see this file's header.
  */
-export async function createProject({ name, rootDirectory, apiUrl, framework = 'nextjs' }) {
+export async function createProject({ name, rootDirectory, apiUrl, brandName, framework = 'nextjs' }) {
   const { full } = splitGithubRepo();
   return vercelRequest('POST', `/v11/projects${teamQuery()}`, {
     name,
@@ -90,6 +90,10 @@ export async function createProject({ name, rootDirectory, apiUrl, framework = '
       // rather than silently falling back to RarePrint's own API.
       { key: 'NEXT_PUBLIC_API_URL', value: apiUrl, target: 'production', type: 'plain' },
       { key: 'NEXT_PUBLIC_API_URL', value: apiUrl, target: 'preview', type: 'plain' },
+      // The customer's own name in place of "RarePrint" (frontend
+      // lib/brand-defaults.ts). An admin can still change it in Settings.
+      { key: 'NEXT_PUBLIC_BRAND_NAME', value: brandName, target: 'production', type: 'plain' },
+      { key: 'NEXT_PUBLIC_BRAND_NAME', value: brandName, target: 'preview', type: 'plain' },
     ],
   });
 }

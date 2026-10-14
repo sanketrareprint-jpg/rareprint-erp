@@ -1,5 +1,6 @@
 ﻿"use client";
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import { useBranding } from "@/lib/branding";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { PoliciesWidget } from "@/components/PoliciesWidget";
 import DateInput from "@/components/DateInput";
@@ -183,6 +184,7 @@ function stageBadgeClass(value?: string | null) {
 }
 
 export default function OrdersPage() {
+  const branding = useBranding();
   const router = useRouter();
   const isNativeApp = useIsNativeApp();
   // Website keeps its original spacing; the Android app gets the tighter
@@ -2259,7 +2261,7 @@ export default function OrdersPage() {
             {/* Receipt Preview */}
             <div id="dispatch-receipt-print" style={{ padding: "1rem", fontFamily: "Arial, sans-serif" }}>
               <div style={{ textAlign: "center", marginBottom: "12px", paddingBottom: "10px", borderBottom: "2px solid #0f172a" }}>
-                <p style={{ fontSize: "16px", fontWeight: 800, margin: 0, color: "#0f172a" }}>RAREPRINT</p>
+                <p style={{ fontSize: "16px", fontWeight: 800, margin: 0, color: "#0f172a" }}>{branding.name.toUpperCase()}</p>
                 <p style={{ fontSize: "9px", color: "#64748b", margin: "2px 0 0" }}>Dispatch Receipt / Courier Label</p>
                 <p style={{ fontSize: "9px", color: "#64748b", margin: "1px 0 0" }}>{new Date().toLocaleString("en-IN")}</p>
               </div>

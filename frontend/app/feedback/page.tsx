@@ -1,5 +1,6 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
+import { useBranding } from "@/lib/branding";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
@@ -116,6 +117,7 @@ const YES_NO = [{ value: "YES" as const, label: "Yes" }, { value: "NO" as const,
 const yesNoValue = (v: boolean | null) => (v === null ? "" : v ? "YES" : "NO");
 
 export default function FeedbackPage() {
+  const branding = useBranding();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("pending");
 
@@ -352,7 +354,7 @@ export default function FeedbackPage() {
                 <p style={S.sectionTitle}>Customer Feedback</p>
 
                 <div style={S.field}>
-                  <p style={S.question}>1. How satisfied are you with your overall experience with Rareprint?</p>
+                  <p style={S.question}>1. How satisfied are you with your overall experience with {branding.name}?</p>
                   <StarRating value={form.overallRating} onChange={(v) => setForm((f) => ({ ...f, overallRating: v }))} />
                 </div>
 
@@ -384,7 +386,7 @@ export default function FeedbackPage() {
                 </div>
 
                 <div style={S.field}>
-                  <p style={S.question}>6. Would you recommend Rareprint to others?</p>
+                  <p style={S.question}>6. Would you recommend {branding.name} to others?</p>
                   <ChoiceButtons options={[{ value: "YES", label: "Yes" }, { value: "MAYBE", label: "Maybe" }, { value: "NO", label: "No" }]}
                     value={form.wouldRecommend} onChange={(v) => setForm((f) => ({ ...f, wouldRecommend: v }))} />
                   {form.wouldRecommend === "YES" && (

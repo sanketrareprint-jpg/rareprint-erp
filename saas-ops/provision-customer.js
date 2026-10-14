@@ -99,6 +99,7 @@ async function main() {
   console.log('\n[7/7] Creating frontend on Vercel (project, API wiring, CORS, build)...');
   const frontend = await provisionFrontend({
     slug,
+    customerName,
     environmentId: environment.id,
     backendServiceId: backendService.id,
   });
