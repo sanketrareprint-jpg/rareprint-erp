@@ -93,10 +93,12 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-// P1017 ("Server has closed the connection") added 2026-10-14 — the same
-// Railway proxy drop, reported differently; a real signups.js approve run
-// failed on it partway through baselining.
-const CONNECTION_ERROR_PATTERN = /P1001|P1017|can't reach database server|server has closed the connection/i;
+// P1017 ("Server has closed the connection") and P1011 ("Error opening a TLS
+// connection ... forcibly closed", Windows os error 10054) added 2026-10-14 —
+// the same dropped/reset connection to the Railway proxy, reported
+// differently; real signups.js approve runs failed on each partway through.
+const CONNECTION_ERROR_PATTERN =
+  /P1001|P1011|P1017|can't reach database server|server has closed the connection|forcibly closed|ECONNRESET/i;
 
 // db push is retried on connection errors too (added 2026-10-14): the
 // brand-new database is still restarting after its TCP-proxy redeploy, and

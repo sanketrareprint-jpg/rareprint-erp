@@ -13,7 +13,7 @@
 // writes to. `approve` also needs everything provision-customer.js needs.
 
 import 'dotenv/config';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import pg from 'pg';
@@ -130,11 +130,19 @@ async function approve(db, id) {
 
   console.log(`Approving #${id}: "${request.company_name}" (${request.email}), plan ${request.plan}\n`);
   // No shell: with one, Windows would split "Sharma Printers" into two args.
-  const result = spawnSync(process.execPath, ['provision-customer.js', request.company_name], {
-    cwd: import.meta.dirname,
-    stdio: 'inherit',
+  // Async spawn, not spawnSync: a blocked event loop stopped the pool from
+  // noticing its idle connection had been dropped during the multi-minute
+  // run, so the follow-up status update failed with "Connection terminated
+  // unexpectedly" and left the request stuck in 'provisioning' (2026-10-14).
+  const exitCode = await new Promise((resolve) => {
+    const child = spawn(process.execPath, ['provision-customer.js', request.company_name], {
+      cwd: import.meta.dirname,
+      stdio: 'inherit',
+    });
+    child.on('error', () => resolve(1));
+    child.on('close', (code) => resolve(code ?? 1));
   });
-  if (result.status !== 0) {
+  if (exitCode !== 0) {
     const note = 'provision-customer.js failed — check Railway/Vercel for a half-built environment before retrying by hand';
     await setOutcome(db, id, 'failed', { note });
     recordAuditEvent('approve-signup-failed', slug, { signupId: id });
