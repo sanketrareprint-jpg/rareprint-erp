@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Check } from "lucide-react";
 import { whatsappLink, BRAND_NAME } from "../lib/site-config";
-import { TRIAL_LENGTH_DAYS } from "../lib/plans-data";
+import { TRIAL_LENGTH_DAYS, getPlans } from "../lib/plans-data";
 import { WaitlistForm } from "./waitlist-form";
 import { FadeIn } from "../components/fade-in";
 
@@ -17,7 +17,8 @@ const included = [
   "Personal setup help, not a self-serve maze",
 ];
 
-export default function StartFreePage() {
+export default async function StartFreePage() {
+  const plans = (await getPlans()).map((p) => ({ id: p.id, name: p.name }));
   return (
     <div className="bg-slate-50 py-20">
       <div className="mx-auto max-w-5xl px-6">
@@ -62,7 +63,7 @@ export default function StartFreePage() {
                 We&apos;ll follow up within one business day.
               </p>
               <div className="mt-6">
-                <WaitlistForm />
+                <WaitlistForm plans={plans} />
               </div>
             </div>
           </div>

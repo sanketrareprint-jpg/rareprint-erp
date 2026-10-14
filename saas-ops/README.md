@@ -226,9 +226,34 @@ to the same GitHub branch as RarePrint's own production backend, pushing to
 that branch redeploys every customer automatically through Railway's normal
 Git integration.
 
+**Trial signups from the marketing site (`signups.js`):**
+The "Start free" form on the marketing site saves each request to a small
+signups database; nothing is created until you approve it here.
+
+One-time setup:
+1. Create a database for signups and put its connection string in BOTH
+   this folder's `.env` and the marketing site's Railway variables as
+   `SIGNUPS_DATABASE_URL`. Until the marketing site has that variable, its
+   form falls back to opening an email, exactly as before.
+2. `node signups.js init` — creates the table (safe to re-run).
+
+Then:
+- `node signups.js list` (or `--all`) — see requests and their ids.
+- `node signups.js approve <id>` — runs `provision-customer.js` for that
+  business, waits for the new backend to come up, creates the requester's
+  admin login (the first account on an empty instance) and prints the login
+  URL, email and a generated password **once** — send those to the customer.
+  This creates real, billable Railway/Vercel resources. Check the id from
+  `list` first: ids are not always consecutive.
+- `node signups.js reject <id> --reason "..."`.
+
+A request that fails mid-way is marked `failed` with a note and is never
+retried automatically — check Railway for a half-built environment first.
+
 ## Files
 
 - `provision-customer.js` — new customer setup.
+- `signups.js` — review/approve/reject trial signups from the marketing site.
 - `rollout-migration.js` — run a migration against every existing customer.
 - `customer-status.js` — read-only health/usage row per customer, from their database.
 - `suspend-customer.js` / `activate-customer.js` — turn a customer's backend

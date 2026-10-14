@@ -34,7 +34,7 @@ import {
   deployService,
 } from './lib/railway-api.js';
 import { buildCustomerEnv } from './customer-env-template.js';
-import { addCustomer } from './lib/registry.js';
+import { addCustomer, customerSlug } from './lib/registry.js';
 import { provisionFrontend } from './lib/frontend-provision.js';
 
 const customerName = process.argv[2];
@@ -43,12 +43,7 @@ if (!customerName) {
   process.exit(1);
 }
 
-// Turns "Sharma Printers" into "sharma-printers" for use as an
-// environment/service name slug.
-const slug = customerName
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-|-$/g, '');
+const slug = customerSlug(customerName);
 
 async function main() {
   console.log(`Provisioning new customer: "${customerName}" (slug: ${slug})`);

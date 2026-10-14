@@ -24,6 +24,16 @@ export function saveRegistry(registry) {
   writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2));
 }
 
+// Turns "Sharma Printers" into "sharma-printers" for use as an
+// environment/service name slug. Shared by provision-customer.js and
+// signups.js so both always agree on a customer's slug.
+export function customerSlug(customerName) {
+  return customerName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 export function addCustomer(entry) {
   const registry = loadRegistry();
   registry.customers.push({ ...entry, provisionedAt: new Date().toISOString() });
