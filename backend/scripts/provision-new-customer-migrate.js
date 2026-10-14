@@ -118,7 +118,10 @@ function sleepSync(ms) {
 }
 
 const ALREADY_APPLIED_PATTERN = /already recorded as applied|P3008/i;
-const CONNECTION_ERROR_PATTERN = /P1001|can't reach database server/i;
+// P1017 ("Server has closed the connection") added 2026-10-14 — the same
+// Railway proxy drop, reported differently; a real signups.js approve run
+// failed on it partway through baselining.
+const CONNECTION_ERROR_PATTERN = /P1001|P1017|can't reach database server|server has closed the connection/i;
 const MAX_ATTEMPTS = 4;
 
 let baselinedCount = 0;
