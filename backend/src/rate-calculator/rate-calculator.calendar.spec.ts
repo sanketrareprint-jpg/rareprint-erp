@@ -68,13 +68,24 @@ describe('Calendar cost calculator', () => {
     expect(r.subtotal).toBeCloseTo(7200 + 6000 + 7200 + 4000, 6);
   });
 
-  it('Test case 3 — 1,000 × 11×17, 3 pages (1.5 sheets/calendar, 4 sides)', async () => {
+  it('Test case 3 — 1,000 × 11×17, 3 pages (1.5 sheets/calendar, 4 sides, leaf 3 work-and-turn)', async () => {
     const c: any = (await makeService().calcCalendar({ ...base, pages: '3' })).calendar;
     expect(c.totalSheets).toBe(1500);
     expect(c.printedSides).toBe(4);
-    expect(c.plateCost).toBe(4000);
+    expect(c.plateSets).toBe(3);                         // leaves 1+2: 2 sets; leaf 3: 1 set, same plate both sides
+    expect(c.plateCost).toBe(3 * 4 * 250);
     expect(c.totalImpressions).toBe(3000);
-    expect(c.printingCost).toBe(4 * 900);
+    // Leaves 1+2: 1,000 sheets × 2 sides = 2 × 900. Leaf 3: 500 sheets × 2 = 1,000 impressions, one run = 900.
+    expect(c.printingCost).toBe(2 * 900 + 900);
+  });
+
+  it('11×17 3-page work-and-turn leaf counts its impressions as one continuous slab run', async () => {
+    const c: any = (await makeService().calcCalendar({ ...base, qty: 3000, pages: '3' })).calendar;
+    expect(c.totalSheets).toBe(4500);
+    expect(c.plateSets).toBe(3);
+    // Leaves 1+2: 3,000-sheet run per side = 2 × (900 + 2×300). Leaf 3: 1,500 sheets × 2 = 3,000 impressions = 900 + 2×300.
+    expect(c.printingCost).toBe(2 * 1500 + 1500);
+    expect(c.forms[1]).toMatchObject({ sheets: 1500, sides: 2, impressions: 3000, plateSets: 1, printCost: 1500 });
   });
 
   it('1-page 11×17 is 2-up, single side; odd qty rounds sheets up', async () => {

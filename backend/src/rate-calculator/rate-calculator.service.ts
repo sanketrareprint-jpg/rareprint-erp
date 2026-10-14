@@ -33,9 +33,12 @@ const SHEET_AREA: Record<string, number> = {
 // calendar, printed on `sides` sides (1 = front only, 2 = front + back).
 // Every printed side is one plate set and one press run, no matter how many
 // calendar designs are imposed on it — so designs ≠ plates ≠ sheets.
+// Exception — `workAndTurn`: front and back are imposed on ONE plate set; the
+// sheet is printed, turned and printed again with the same plates, so it costs
+// 1 plate set and its impressions (sheets × sides) count as one continuous run.
 // No wastage is added anywhere (business rule: wastage = 0%).
 const CALENDAR_COLORS = 4;
-type CalendarForm = { sheetsPerCalendar: number; sides: 1 | 2; note: string };
+type CalendarForm = { sheetsPerCalendar: number; sides: 1 | 2; note: string; workAndTurn?: true };
 type CalendarPages = '1' | '3' | '6';
 
 function calendarLeafForms(leaves: number): CalendarForm[] {
@@ -50,7 +53,7 @@ const CALENDAR_SIZES: Record<string, { label: string; parent: string; parentLabe
       '1': [{ sheetsPerCalendar: 0.5, sides: 1, note: '2 calendars per 18×23 sheet, front only' }],
       '3': [
         { sheetsPerCalendar: 1, sides: 2, note: 'Leaves 1+2: 2 designs per side, front + back' },
-        { sheetsPerCalendar: 0.5, sides: 2, note: 'Leaf 3: 2-up (2 calendars per sheet), front + back' },
+        { sheetsPerCalendar: 0.5, sides: 2, workAndTurn: true, note: 'Leaf 3: 2-up work-and-turn (1 plate set, front + back as one continuous run)' },
       ],
       '6': [
         { sheetsPerCalendar: 1, sides: 2, note: 'Leaves 1+2: 2 months per side, front + back' },
@@ -1365,19 +1368,25 @@ export class RateCalculatorService {
     const paperRatePerSheet = Number(paperReamRate) / 500;
     const formRows = forms.map(f => {
       const sheets = Math.ceil(qty * f.sheetsPerCalendar);
-      // Existing 4-colour slab, charged once per printed side of this run.
-      const printCost = this.getPrintCost(rates, CALENDAR_COLORS, sheets, 1, f.sides);
-      return { note: f.note, sheets, sides: f.sides, impressions: sheets * f.sides, printCost };
+      const impressions = sheets * f.sides;
+      // Work-and-turn: one plate set, all impressions charged as a single slab run.
+      // Otherwise the 4-colour slab is charged once per printed side of this run.
+      const plateSets = f.workAndTurn ? 1 : f.sides;
+      const printCost = f.workAndTurn
+        ? this.getPrintCost(rates, CALENDAR_COLORS, impressions, 1, 1)
+        : this.getPrintCost(rates, CALENDAR_COLORS, sheets, 1, f.sides);
+      return { note: f.note, sheets, sides: f.sides, impressions, plateSets, printCost };
     });
     const totalSheets = formRows.reduce((s, f) => s + f.sheets, 0);
     const printedSides = formRows.reduce((s, f) => s + f.sides, 0);
     const totalImpressions = formRows.reduce((s, f) => s + f.impressions, 0);
+    const plateSets = formRows.reduce((s, f) => s + f.plateSets, 0);
 
     // 2) Costs.
     const paperCost = totalSheets * paperRatePerSheet;
     const plateRate = Number(rates.plate);
     const plateSetRate = CALENDAR_COLORS * plateRate;
-    const plateCost = this.getPlateCost(rates, CALENDAR_COLORS, printedSides); // 1 plate set per printed side
+    const plateCost = this.getPlateCost(rates, CALENDAR_COLORS, plateSets); // 1 plate set per printed side (work-and-turn: 1 per form)
     const printingCost = formRows.reduce((s, f) => s + f.printCost, 0);
     const tinningCost = qty * Number(tinningRate); // per finished calendar, never per sheet
     const subtotal = paperCost + plateCost + printingCost + tinningCost;
@@ -1386,7 +1395,7 @@ export class RateCalculatorService {
     const q = qty.toLocaleString('en-IN');
     const breakdown = [
       { label: `Paper (${totalSheets.toLocaleString('en-IN')} sheets x Rs.${paperRatePerSheet.toFixed(2)})`, amount: paperCost },
-      { label: `Plates (${printedSides} printed side${printedSides > 1 ? 's' : ''} x Rs.${plateSetRate} = ${CALENDAR_COLORS} colours x Rs.${plateRate})`, amount: plateCost },
+      { label: `Plates (${plateSets} plate set${plateSets > 1 ? 's' : ''} x Rs.${plateSetRate} = ${CALENDAR_COLORS} colours x Rs.${plateRate})`, amount: plateCost },
       { label: `Printing (${printedSides} printed side${printedSides > 1 ? 's' : ''}, ${totalImpressions.toLocaleString('en-IN')} impressions, 4-colour slab)`, amount: printingCost },
       { label: `Tinning ${CALENDAR_TINNING[tinning]} (${q} calendars x Rs.${Number(tinningRate)})`, amount: tinningCost },
     ];
@@ -1414,7 +1423,7 @@ export class RateCalculatorService {
         forms: formRows,
         totalSheets,
         printedSides,
-        plateSets: printedSides,
+        plateSets,
         colors: CALENDAR_COLORS,
         totalImpressions,
         paperReamRate: Number(paperReamRate),
