@@ -89,8 +89,38 @@ function run(command, args) {
   });
 }
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// P1017 ("Server has closed the connection") added 2026-10-14 — the same
+// Railway proxy drop, reported differently; a real signups.js approve run
+// failed on it partway through baselining.
+const CONNECTION_ERROR_PATTERN = /P1001|P1017|can't reach database server|server has closed the connection/i;
+
+// db push is retried on connection errors too (added 2026-10-14): the
+// brand-new database is still restarting after its TCP-proxy redeploy, and
+// provision-customer.js's fixed 20s wait was not always enough — a real run
+// hit P1001 here. Retrying is safe: the production guard above has already
+// run, and db push against the same schema is idempotent.
+const PUSH_MAX_ATTEMPTS = 6;
 console.log('[provision-new-customer-migrate] Pushing current schema.prisma directly to the new database (prisma db push)...');
-const pushResult = run(PRISMA_BIN, ['db', 'push', '--accept-data-loss']);
+let pushResult;
+for (let attempt = 1; ; attempt += 1) {
+  pushResult = spawnSync(PRISMA_BIN, ['db', 'push', '--accept-data-loss'], {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+  if (pushResult.stdout) process.stdout.write(pushResult.stdout);
+  if (pushResult.stderr) process.stderr.write(pushResult.stderr);
+  const output = `${pushResult.stdout || ''}${pushResult.stderr || ''}`;
+  if (pushResult.status === 0 || !CONNECTION_ERROR_PATTERN.test(output) || attempt >= PUSH_MAX_ATTEMPTS) break;
+  const delayMs = 10000 * attempt;
+  console.warn(
+    `[provision-new-customer-migrate] database not reachable yet, retrying db push in ${delayMs / 1000}s (attempt ${attempt}/${PUSH_MAX_ATTEMPTS - 1})...`
+  );
+  sleepSync(delayMs);
+}
 if (pushResult.status !== 0) {
   console.error(
     `[provision-new-customer-migrate] FATAL: \`prisma db push\` exited with status ${pushResult.status} against a brand-new database. Investigate before retrying — do not treat this customer as provisioned.`
@@ -113,15 +143,7 @@ const migrationFolders = fs
 // the script from scratch would immediately fail on migration #1, since
 // Prisma's `migrate resolve --applied` errors (P3008) on a migration that's
 // already baselined instead of treating it as a no-op.
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 const ALREADY_APPLIED_PATTERN = /already recorded as applied|P3008/i;
-// P1017 ("Server has closed the connection") added 2026-10-14 — the same
-// Railway proxy drop, reported differently; a real signups.js approve run
-// failed on it partway through baselining.
-const CONNECTION_ERROR_PATTERN = /P1001|P1017|can't reach database server|server has closed the connection/i;
 const MAX_ATTEMPTS = 4;
 
 let baselinedCount = 0;
