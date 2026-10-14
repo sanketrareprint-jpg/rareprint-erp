@@ -682,6 +682,13 @@ ${l.productionNotes}`,
     if (!row && c.shopifyCheckoutId) {
       row = await this.prisma.shopifyCheckout.findUnique({ where: { token: `gql-${c.shopifyCheckoutId}` } });
     }
+    // A later update with blank contact fields must not wipe a name/phone/email
+    // saved from an earlier event.
+    if (row) {
+      data.customerName = data.customerName ?? row.customerName;
+      data.phone = data.phone ?? row.phone;
+      data.email = data.email ?? row.email;
+    }
     row = row
       ? await this.prisma.shopifyCheckout.update({ where: { id: row.id }, data: { token: c.token, ...data } })
       : await this.prisma.shopifyCheckout.create({ data: { token: c.token, ...data } });
@@ -785,11 +792,18 @@ ${l.productionNotes}`,
         const c = mapGraphqlCheckout(node);
         const existing = await this.prisma.shopifyCheckout.findFirst({
           where: { OR: [{ shopifyCheckoutId: c.shopifyCheckoutId }, { token: c.token }] },
-          select: { id: true, recoveryUrl: true },
+          select: { id: true, recoveryUrl: true, customerName: true, phone: true, email: true },
         });
         if (existing) {
-          if (!existing.recoveryUrl && c.recoveryUrl) {
-            await this.prisma.shopifyCheckout.update({ where: { id: existing.id }, data: { recoveryUrl: c.recoveryUrl } });
+          // The webhook row is often saved before the customer types any
+          // contact details; fill only the fields it is still missing.
+          const fill: Prisma.ShopifyCheckoutUpdateInput = {};
+          if (!existing.recoveryUrl && c.recoveryUrl) fill.recoveryUrl = c.recoveryUrl;
+          if (!existing.customerName && c.customerName) fill.customerName = c.customerName;
+          if (!existing.phone && c.phone) fill.phone = c.phone;
+          if (!existing.email && c.email) fill.email = c.email;
+          if (Object.keys(fill).length) {
+            await this.prisma.shopifyCheckout.update({ where: { id: existing.id }, data: fill });
           }
           continue;
         }
