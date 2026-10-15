@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { PoliciesWidget } from "@/components/PoliciesWidget";
@@ -76,6 +77,7 @@ function fmtDateTime(d: string | null | undefined) {
 }
 
 export default function HrPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const me = getStoredUser();
   const canAccess = me?.role === "ADMIN" || me?.role === "ACCOUNTS";
   const isSuperAdmin = me?.email === SUPERADMIN_EMAIL;
@@ -503,7 +505,7 @@ export default function HrPage() {
               {loadingList ? (
                 <div className="p-6 text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading...</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="mobile-stack w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
                       <th className="py-2 px-3">Code</th>
@@ -732,7 +734,7 @@ export default function HrPage() {
                       <span>Balance: <b className={leaveBalance.balance <= 0 ? "text-red-600" : "text-green-700"}>{leaveBalance.balance}</b></span>
                     </div>
                   )}
-                  <table className="w-full text-xs">
+                  <table className="mobile-stack w-full text-xs">
                     <thead>
                       <tr className="text-slate-500 border-b border-slate-200">
                         <th className="text-left py-1.5 pr-2">Date</th>

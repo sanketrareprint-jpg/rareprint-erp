@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -113,6 +114,7 @@ const MATCH_METHOD_LABEL: Record<string, string> = {
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function RemittanceImportPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const router = useRouter();
   const remittanceFileRef = useRef<HTMLInputElement>(null);
   const deliveredFileRef = useRef<HTMLInputElement>(null);
@@ -593,7 +595,7 @@ export default function RemittanceImportPage() {
         {/* ════════════════ SESSIONS TAB ════════════════ */}
         {activeTab === "sessions" && (
           <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="mobile-stack w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Imported</th>
@@ -666,7 +668,7 @@ export default function RemittanceImportPage() {
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="mobile-stack w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
                       <th className="px-4 py-2.5 w-8"></th>
@@ -839,7 +841,7 @@ export default function RemittanceImportPage() {
             {loadingRecords ? (
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="mobile-stack w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">AWB</th>

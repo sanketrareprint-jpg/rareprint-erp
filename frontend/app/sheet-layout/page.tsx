@@ -385,10 +385,10 @@ function SheetLayoutContent() {
   const aspect = sheet.widthIn / sheet.heightIn;
 
   return (
-    <div style={{ fontFamily:"'DM Mono','Courier New',monospace", height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f8fafc' }}>
+    <div className="sheet-layout-root" style={{ fontFamily:"'DM Mono','Courier New',monospace", height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f8fafc' }}>
 
       {/* ── Header ── */}
-      <div style={{ background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'8px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+      <div className="sheet-layout-header" style={{ background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'8px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
         <div>
           <span style={{ fontSize:13, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'#111' }}>Sheet Layout Composer</span>
           <span style={{ fontSize:11, color:'#9ca3af', marginLeft:10 }}>600 DPI · JPG · TARGET ~25MB</span>
@@ -408,10 +408,10 @@ function SheetLayoutContent() {
       </div>
 
       {/* ── Body ── */}
-      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+      <div className="sheet-layout-body" style={{ flex:1, display:'flex', overflow:'hidden' }}>
 
         {/* ── LEFT PANEL ── */}
-        <div style={{ width:256, flexShrink:0, borderRight:'1px solid #e5e7eb', background:'#fff', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div className="sheet-layout-sidebar" style={{ width:256, flexShrink:0, borderRight:'1px solid #e5e7eb', background:'#fff', display:'flex', flexDirection:'column', overflow:'hidden' }}>
 
           {/* Sheet number */}
           <div style={{ padding:'8px 10px 7px', borderBottom:'1px solid #f3f4f6' }}>
@@ -584,7 +584,7 @@ function SheetLayoutContent() {
         </div>
 
         {/* ── CANVAS ── */}
-        <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', justifyContent:'center', background:'#f1f5f9', padding:8, overflow:'hidden' }}>
+        <div className="sheet-layout-preview" style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', justifyContent:'center', background:'#f1f5f9', padding:8, overflow:'hidden' }}>
           {!pattern ? (
             <div style={{ textAlign:'center', color:'#9ca3af' }}>
               <div style={{ fontSize:36, marginBottom:8 }}>📐</div>

@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -281,6 +282,7 @@ function StatusBadge({ status }: { status: string }) {
 // ── Main Component ────────────────────────────────────────────────────────
 
 export default function CostTablePage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<Settings>({ minApprovalMarginPct: 15, warningMarginPct: 20, agentCommissionPct: 10 });
   const [loading, setLoading] = useState(true);
@@ -1128,7 +1130,7 @@ export default function CostTablePage() {
                         {/* Slabs table */}
                         {product.costSlabs.length > 0 ? (
                           <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
+                            <table className="mobile-stack w-full text-sm">
                               <thead>
                                 <tr className="text-xs text-gray-500 border-b border-gray-100">
                                   <th className="text-left pb-2 font-medium">Min Qty</th>
@@ -1400,7 +1402,7 @@ export default function CostTablePage() {
                     <h2 className="text-sm font-bold text-gray-900">This Month Commission By Agent</h2>
                   </div>
                   <div className="overflow-auto">
-                    <table className="w-full text-sm">
+                    <table className="mobile-stack w-full text-sm">
                       <thead className="bg-gray-50 text-xs text-gray-500">
                         <tr>
                           <th className="px-3 py-2 text-left">Agent</th>
@@ -1886,7 +1888,7 @@ export default function CostTablePage() {
               </div>
             ) : (
               <div className="overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-                <table className="text-sm border-collapse">
+                <table className="mobile-stack text-sm border-collapse">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="sticky left-0 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">Product Code</th>

@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -699,7 +700,7 @@ function MarketingPageContent() {
           </div>
         )}
 
-        <div className="mt-5 flex gap-2 overflow-x-auto">
+        <div className="mobile-tabs mt-5 flex gap-2 overflow-x-auto">
           {[
             ["campaigns", "Campaigns"],
             ["contacts", "Contacts"],
@@ -711,6 +712,7 @@ function MarketingPageContent() {
             <button
               key={key}
               onClick={() => setActiveTab(key as any)}
+              data-active={activeTab === key}
               className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === key ? "bg-brand-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`}
             >
               {label}
@@ -1039,7 +1041,7 @@ function MarketingPageContent() {
               </div>
             ) : (
               <section className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full min-w-[1100px] text-sm">
+                <table className="mobile-stack w-full min-w-[1100px] text-sm">
                   <thead className="bg-slate-50 text-left text-xs font-bold uppercase text-slate-500">
                     <tr>
                       <th className="px-3 py-2">Month</th>
@@ -1309,7 +1311,7 @@ function MarketingPageContent() {
               ) : filteredMonthContacts.length === 0 ? (
                 <div className="p-8 text-center text-slate-400">{monthContacts.length === 0 ? "No contacts created this month." : "No matches for this search."}</div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="mobile-stack w-full text-sm">
                   <thead className="sticky top-0 bg-slate-50 text-left text-xs font-bold uppercase text-slate-500">
                     <tr>
                       <th className="px-3 py-2">Name</th>
@@ -1351,6 +1353,7 @@ function MarketingPageContent() {
 }
 
 export default function MarketingPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   return (
     <DashboardShell>
       <MarketingPageContent />

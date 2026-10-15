@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -51,6 +52,7 @@ function todayIso() {
 }
 
 export default function MachineReadingsPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [readings, setReadings] = useState<MachineReadingRow[]>([]);
   const [pending, setPending] = useState<PendingSummary | null>(null);
   const [monthly, setMonthly] = useState<MonthlyRow[]>([]);
@@ -267,7 +269,7 @@ export default function MachineReadingsPage() {
 
           {/* ── Readings table ── */}
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
+            <table className="mobile-stack w-full min-w-[800px] text-sm">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-semibold text-slate-600">Date</th>

@@ -172,7 +172,7 @@ function EditOrderPageInner() {
           </div>
           {lineItems.map((item, idx) => (
             <div key={idx}>
-              <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+              <div className="create-order-product-row has-field-labels" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
                 <div className="create-order-product-picker" style={{ position: "relative" }}>
                   <input type="text" placeholder="Search product..."
                     value={productSearch[idx] !== undefined ? productSearch[idx] : (products.find(p => p.id === item.productId) ? `${products.find(p => p.id === item.productId)!.name} | ${products.find(p => p.id === item.productId)!.sizeInches} | ${products.find(p => p.id === item.productId)!.gsm} GSM${products.find(p => p.id === item.productId)!.paperType ? ` | ${products.find(p => p.id === item.productId)!.paperType}` : ""}` : "")}
@@ -193,21 +193,42 @@ function EditOrderPageInner() {
                     </div>
                   )}
                 </div>
-                <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
-                <input type="number" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} style={S.input} />
-                <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
-                  {item.paperType || "-"}
+                <div>
+                  <span className="create-order-field-label">Size</span>
+                  <input value={item.sizeInches} onChange={e => updateLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
                 </div>
-                <MobileSelect value={item.sides} onChange={v => updateLine(idx, "sides", v)} style={S.input}
-                  options={[
-                    { value: "SINGLE_SIDE", label: "Single" },
-                    { value: "DOUBLE_SIDE", label: "Double" },
-                  ]} />
-                <input type="number" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
-                <input type="number" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} style={S.input} />
-                <input type="number" min={0} value={item.lineTotal || (item.quantity * item.unitPrice) || ""}
-                  onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
-                  style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }} />
+                <div>
+                  <span className="create-order-field-label">GSM</span>
+                  <input type="number" inputMode="numeric" value={item.gsm || ""} onChange={e => updateLine(idx, "gsm", Number(e.target.value))} style={S.input} />
+                </div>
+                <div>
+                  <span className="create-order-field-label">Paper</span>
+                  <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
+                    {item.paperType || "-"}
+                  </div>
+                </div>
+                <div>
+                  <span className="create-order-field-label">Sides</span>
+                  <MobileSelect value={item.sides} onChange={v => updateLine(idx, "sides", v)} style={S.input}
+                    options={[
+                      { value: "SINGLE_SIDE", label: "Single" },
+                      { value: "DOUBLE_SIDE", label: "Double" },
+                    ]} />
+                </div>
+                <div>
+                  <span className="create-order-field-label">Qty</span>
+                  <input type="number" inputMode="numeric" min={1} value={item.quantity} onChange={e => updateLine(idx, "quantity", Number(e.target.value))} style={S.input} />
+                </div>
+                <div>
+                  <span className="create-order-field-label">Rate/Unit</span>
+                  <input type="number" inputMode="decimal" min={0} value={item.unitPrice || ""} onChange={e => updateLine(idx, "unitPrice", Number(e.target.value))} style={S.input} />
+                </div>
+                <div>
+                  <span className="create-order-field-label">Amount</span>
+                  <input type="number" inputMode="decimal" min={0} value={item.lineTotal || (item.quantity * item.unitPrice) || ""}
+                    onChange={e => updateLine(idx, "lineTotal", Number(e.target.value))}
+                    style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }} />
+                </div>
                 {lineItems.length > 1 || offerLines.length > 0 ? (
                   <button onClick={() => setLineItems(p => p.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444" }}>
                     <Trash2 style={{ width: 14, height: 14 }} />

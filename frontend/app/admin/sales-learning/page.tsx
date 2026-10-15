@@ -1,4 +1,5 @@
 ﻿"use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { useState, useEffect } from "react";
 import { Users, BookOpen, CheckCircle, Flame, Trophy, TrendingUp, RefreshCw, BarChart2, Target } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -240,7 +241,7 @@ function SalesLearningAdminPageContent() {
           <div style={cardStyle}>
             <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 16 }}>📚 All Topics — Completion Stats</div>
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <table className="mobile-stack" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                     {["#", "Topic", "Completions", "Quiz Attempts", "Pass Rate", "Status"].map(h => (
@@ -330,6 +331,7 @@ function SalesLearningAdminPageContent() {
 }
 
 export default function SalesLearningAdminPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   return (
     <DashboardShell>
       <SalesLearningAdminPageContent />

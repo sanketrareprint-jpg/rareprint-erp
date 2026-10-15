@@ -519,7 +519,32 @@ export default function DashboardPage() {
               {!agentProfit || agentProfit.agents.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-3">{agentProfitLoading ? "Loading…" : "No sales-agent orders in this period."}</p>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                {/* Phone: one card per agent (table below is md+). */}
+                <div className="md:hidden space-y-1.5">
+                  {[...agentProfit.agents.map((a) => ({ ...a, key: a.id, warn: a.missingCostItems })), { ...agentProfit.totals, key: "total", name: "Total", warn: 0 }].map((a) => (
+                    <div key={a.key} className={`rounded-md border p-2 ${a.key === "total" ? "border-slate-300 bg-slate-50" : "border-slate-100"}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 text-xs font-bold text-slate-800 break-words">
+                          {a.name}
+                          {a.warn > 0 && <span title={`${a.warn} item(s) missing cost data — gross profit may be understated`} className="ml-1 text-amber-500">⚠</span>}
+                        </p>
+                        <p className={`shrink-0 text-right text-sm font-bold ${a.profitAfterDeductions >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {fmt(a.profitAfterDeductions)}
+                          <span className="block text-[10px] font-normal text-slate-400">after deductions</span>
+                        </p>
+                      </div>
+                      <div className="mt-1 grid mobile-grid-3 grid-cols-3 gap-x-2 gap-y-0.5 text-[11px]">
+                        <p><span className="block text-slate-400">Sale</span><span className="font-semibold text-slate-700">{fmt(a.saleTotal)}</span></p>
+                        <p><span className="block text-slate-400">Gross Profit</span><span className="font-semibold text-blue-600">{fmt(a.grossProfit)}</span></p>
+                        <p><span className="block text-slate-400">Commission</span><span className="font-semibold text-slate-700">{fmt(a.commissionTotal)}</span></p>
+                        <p><span className="block text-slate-400">Bonus</span><span className="font-semibold text-slate-700">{fmt(a.bonus)}</span></p>
+                        <p><span className="block text-slate-400">Fixed Salary</span><span className="font-semibold text-slate-700">{fmt(a.baseSalary)}</span></p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-slate-500 border-b border-slate-100">
@@ -563,6 +588,7 @@ export default function DashboardPage() {
                     </tfoot>
                   </table>
                 </div>
+                </>
               )}
             </div>
 
@@ -581,7 +607,30 @@ export default function DashboardPage() {
               {!marketingRoiLoading && marketingRoiMonths.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-3">No Marketing ROI data yet.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                {/* Phone: one card per month (table below is md+). */}
+                <div className="md:hidden space-y-1.5">
+                  {marketingRoiMonths.map((m) => (
+                    <div key={m.monthKey} className="rounded-md border border-slate-100 p-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs font-bold text-slate-800">{m.label}</p>
+                        <p className="shrink-0 text-right text-xs font-bold text-emerald-600">
+                          {m.roiVsSaleX != null ? `${m.roiVsSaleX}x` : "—"} <span className="font-normal text-slate-400">sale</span>
+                          {" · "}
+                          {m.roiVsProfitX != null ? `${m.roiVsProfitX}x` : "—"} <span className="font-normal text-slate-400">profit</span>
+                        </p>
+                      </div>
+                      <div className="mt-1 grid mobile-grid-3 grid-cols-3 gap-x-2 gap-y-0.5 text-[11px]">
+                        <p><span className="block text-slate-400">Total Spend</span><span className="font-semibold text-slate-700">{fmt(m.totalSpend)}</span></p>
+                        <p><span className="block text-slate-400">Contacts</span><span className="font-semibold text-slate-700">{m.contactsCreated}</span></p>
+                        <p><span className="block text-slate-400">Converted</span><span className="font-semibold text-slate-700">{m.convertedCustomers} ({m.conversionRatioPct}%)</span></p>
+                        <p><span className="block text-slate-400">Total Sale</span><span className="font-semibold text-slate-700">{fmt(m.totalSale)}</span></p>
+                        <p><span className="block text-slate-400">Total Profit</span><span className="font-semibold text-blue-600">{fmt(m.totalProfit)}</span></p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-slate-500 border-b border-slate-100">
@@ -613,6 +662,7 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>

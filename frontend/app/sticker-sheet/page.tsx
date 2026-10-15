@@ -562,14 +562,14 @@ function StickerSheetContent() {
     <div style={{ fontFamily: "'DM Mono', 'Courier New', monospace" }} className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-2">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+        <div className="mobile-page-header max-w-7xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-baseline gap-3 flex-wrap">
             <h1 className="text-sm font-bold tracking-widest uppercase text-gray-900">
               Sticker Sheet Generator
             </h1>
             <p className="text-xs text-gray-400 tracking-wider">{isSheet ? SHEET_EXPORT_DPI : 300} DPI · PDF READY · PRINT ACCURATE</p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="mobile-page-header-actions flex items-center gap-2 shrink-0">
             <button
               onClick={printPDF}
               disabled={!canExport || isPrinting}
@@ -598,10 +598,10 @@ function StickerSheetContent() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-3 flex gap-4">
+      <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row gap-4">
 
         {/* LEFT PANEL — Controls */}
-        <div className="w-72 flex-shrink-0 space-y-3">
+        <div className="w-full md:w-72 flex-shrink-0 space-y-3">
 
           {/* Upload */}
           <div

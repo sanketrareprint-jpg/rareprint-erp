@@ -245,17 +245,29 @@ export default function UpsellOrderPage() {
                 const started = item.itemProductionStage !== "NOT_PRINTED";
                 return (
                   <div key={item.id} style={{ marginBottom: "8px" }}>
-                    <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 90px 80px 95px 95px", gap: "6px", alignItems: "center" }}>
-                      <div style={{ fontSize: "12px", color: "#0f172a" }}>
+                    <div className="create-order-product-row has-field-labels" style={{ display: "grid", gridTemplateColumns: "2fr 90px 80px 95px 95px", gap: "6px", alignItems: "center" }}>
+                      <div className="create-order-product-picker" style={{ fontSize: "12px", color: "#0f172a" }}>
                         <div style={{ fontWeight: 600 }}>{item.productName}</div>
                         <div style={{ fontSize: "11px", color: "#64748b" }}>{[item.size, item.gsm && `${item.gsm} GSM`, item.paper, item.sides].filter(Boolean).join(" · ")}</div>
                       </div>
-                      <span style={{ fontSize: "11px", fontWeight: 600, color: started ? "#b45309" : "#475569" }}>{STAGE_LABEL[item.itemProductionStage] ?? item.itemProductionStage}</span>
-                      <input type="number" min={item.quantity} value={e.quantity} onChange={ev => updateExisting(item.id, "quantity", Number(ev.target.value))}
-                        style={{ ...S.input, borderColor: bad ? "#f87171" : "#e2e8f0" }} />
-                      <input type="number" min={item.unitPrice} step="0.01" value={e.unitPrice} onChange={ev => updateExisting(item.id, "unitPrice", Number(ev.target.value))}
-                        style={{ ...S.input, borderColor: bad ? "#f87171" : "#e2e8f0" }} />
-                      <div style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }}>{fmt(existingAmount(item))}</div>
+                      <div>
+                        <span className="create-order-field-label">Stage</span>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: started ? "#b45309" : "#475569" }}>{STAGE_LABEL[item.itemProductionStage] ?? item.itemProductionStage}</span>
+                      </div>
+                      <div>
+                        <span className="create-order-field-label">Qty</span>
+                        <input type="number" inputMode="numeric" min={item.quantity} value={e.quantity} onChange={ev => updateExisting(item.id, "quantity", Number(ev.target.value))}
+                          style={{ ...S.input, borderColor: bad ? "#f87171" : "#e2e8f0" }} />
+                      </div>
+                      <div>
+                        <span className="create-order-field-label">Rate/Unit</span>
+                        <input type="number" inputMode="decimal" min={item.unitPrice} step="0.01" value={e.unitPrice} onChange={ev => updateExisting(item.id, "unitPrice", Number(ev.target.value))}
+                          style={{ ...S.input, borderColor: bad ? "#f87171" : "#e2e8f0" }} />
+                      </div>
+                      <div>
+                        <span className="create-order-field-label">Amount</span>
+                        <div style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }}>{fmt(existingAmount(item))}</div>
+                      </div>
                     </div>
                     {bad && <p style={{ fontSize: "11px", color: "#dc2626", marginTop: "2px" }}>Can't go below qty {item.quantity}, rate {item.unitPrice} or amount {fmt(item.lineTotal)}.</p>}
                     {started && e.quantity > item.quantity && (
@@ -278,7 +290,7 @@ export default function UpsellOrderPage() {
               )}
               {newLines.map((item, idx) => (
                 <div key={idx}>
-                  <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
+                  <div className="create-order-product-row has-field-labels" style={{ display: "grid", gridTemplateColumns: "2fr 75px 55px 80px 75px 75px 95px 95px 28px", gap: "6px", marginBottom: "4px", alignItems: "center" }}>
                     <div className="create-order-product-picker" style={{ position: "relative" }}>
                       <input type="text" placeholder="Search product..."
                         value={productSearch[idx] !== undefined ? productSearch[idx] : (() => { const p = products.find(x => x.id === item.productId); return p ? `${p.name} | ${p.sizeInches} | ${p.gsm} GSM${p.paperType ? ` | ${p.paperType}` : ""}` : ""; })()}
@@ -299,19 +311,40 @@ export default function UpsellOrderPage() {
                         </div>
                       )}
                     </div>
-                    <input value={item.sizeInches} onChange={e => updateNewLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
-                    <input type="number" value={item.gsm || ""} onChange={e => updateNewLine(idx, "gsm", Number(e.target.value))} style={S.input} />
-                    <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
-                      {item.paperType || "-"}
+                    <div>
+                      <span className="create-order-field-label">Size</span>
+                      <input value={item.sizeInches} onChange={e => updateNewLine(idx, "sizeInches", e.target.value)} placeholder="4x5" style={S.input} />
                     </div>
-                    <MobileSelect value={item.sides} onChange={v => updateNewLine(idx, "sides", v)} style={S.input}
-                      options={[
-                        { value: "SINGLE_SIDE", label: "Single" },
-                        { value: "DOUBLE_SIDE", label: "Double" },
-                      ]} />
-                    <input type="number" min={1} value={item.quantity} onChange={e => updateNewLine(idx, "quantity", Number(e.target.value))} style={S.input} />
-                    <input type="number" min={0} step="0.01" value={item.unitPrice || ""} onChange={e => updateNewLine(idx, "unitPrice", Number(e.target.value))} style={S.input} />
-                    <div style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }}>{fmt(lineAmount(item.quantity, item.unitPrice))}</div>
+                    <div>
+                      <span className="create-order-field-label">GSM</span>
+                      <input type="number" inputMode="numeric" value={item.gsm || ""} onChange={e => updateNewLine(idx, "gsm", Number(e.target.value))} style={S.input} />
+                    </div>
+                    <div>
+                      <span className="create-order-field-label">Paper</span>
+                      <div style={{ ...S.input, background: "#f8fafc", color: item.paperType ? "#0f172a" : "#94a3b8", fontSize: "11px", display: "flex", alignItems: "center" }}>
+                        {item.paperType || "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="create-order-field-label">Sides</span>
+                      <MobileSelect value={item.sides} onChange={v => updateNewLine(idx, "sides", v)} style={S.input}
+                        options={[
+                          { value: "SINGLE_SIDE", label: "Single" },
+                          { value: "DOUBLE_SIDE", label: "Double" },
+                        ]} />
+                    </div>
+                    <div>
+                      <span className="create-order-field-label">Qty</span>
+                      <input type="number" inputMode="numeric" min={1} value={item.quantity} onChange={e => updateNewLine(idx, "quantity", Number(e.target.value))} style={S.input} />
+                    </div>
+                    <div>
+                      <span className="create-order-field-label">Rate/Unit</span>
+                      <input type="number" inputMode="decimal" min={0} step="0.01" value={item.unitPrice || ""} onChange={e => updateNewLine(idx, "unitPrice", Number(e.target.value))} style={S.input} />
+                    </div>
+                    <div>
+                      <span className="create-order-field-label">Amount</span>
+                      <div style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d" }}>{fmt(lineAmount(item.quantity, item.unitPrice))}</div>
+                    </div>
                     <button onClick={() => setNewLines(p => p.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444" }}>
                       <Trash2 style={{ width: 14, height: 14 }} />
                     </button>

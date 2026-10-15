@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -19,6 +20,7 @@ type ViewMode = "board" | "table";
 type Stats = { openCount: number; overdueCount: number; avgResolutionHours: number; byCategory: { category: string; count: number }[] };
 
 export default function ComplaintsPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const router = useRouter();
   const [currentUser] = useState(() => getStoredUser());
   const [complaints, setComplaints] = useState<ComplaintListItem[]>([]);
@@ -146,7 +148,7 @@ export default function ComplaintsPage() {
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="w-full text-left text-sm">
+            <table className="mobile-stack w-full text-left text-sm">
               <thead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Ticket #</th>

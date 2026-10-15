@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -37,6 +38,7 @@ function scoreClass(score: number) {
 }
 
 export default function CallHistoryPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [agent, setAgent] = useState("");
@@ -95,7 +97,7 @@ export default function CallHistoryPage() {
   return (
     <DashboardShell>
       <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="mobile-page-header flex items-center justify-between">
           <div>
             <Link href="/call-analysis" className="mb-1 inline-flex items-center gap-1 text-xs font-semibold text-cyan-700"><ArrowLeft className="h-3 w-3" /> Call Analysis</Link>
             <h1 className="text-lg font-bold text-slate-900">Call History</h1>
@@ -119,7 +121,7 @@ export default function CallHistoryPage() {
           {loading ? (
             <div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-cyan-600" /></div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="mobile-stack w-full text-sm">
               <thead className="bg-slate-50 text-xs font-semibold text-slate-600">
                 <tr>
                   <th className="px-3 py-2 text-left">Date</th>

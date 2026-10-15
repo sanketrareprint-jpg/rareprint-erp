@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import DateInput from "@/components/DateInput";
 import { MobileSelect } from "@/components/MobileSelect";
+import { useStackedTables } from "@/lib/useStackedTables";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -247,6 +248,7 @@ async function downloadInvoiceReportExcel(invoices: Invoice[], filename: string)
 function BillingPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const focusInvoiceId = searchParams.get("invoiceId");
 
   const [tab, setTab] = useState<"invoices" | "receipts" | "estimates" | "purchases" | "parties" | "company_profile" | "gst_summary">(
@@ -1015,7 +1017,7 @@ function BillingPageInner() {
           </div>
         ) : (
         <div className="max-h-96 overflow-auto rounded-lg border border-slate-100">
-          <table className="w-full text-xs">
+          <table className="mobile-stack w-full text-xs">
             <thead className="bg-slate-50 text-slate-500 sticky top-0">
               <tr><th className="px-2 py-1.5 text-left">Date</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Voucher No</th><th className="px-2 py-1.5 text-left">Particulars</th><th className="px-2 py-1.5 text-right">Debit</th><th className="px-2 py-1.5 text-right">Credit</th><th className="px-2 py-1.5 text-right">Balance</th></tr>
             </thead>
@@ -2193,7 +2195,7 @@ function BillingPageInner() {
                   <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                     <div className="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-800">HSN/SAC-wise Breakdown</div>
                     <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="mobile-stack w-full text-xs">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr><th className="px-3 py-2 text-left">HSN/SAC</th><th className="px-3 py-2 text-right">Taxable</th><th className="px-3 py-2 text-right">CGST</th><th className="px-3 py-2 text-right">SGST</th><th className="px-3 py-2 text-right">IGST</th><th className="px-3 py-2 text-right">Total Tax</th></tr>
                       </thead>

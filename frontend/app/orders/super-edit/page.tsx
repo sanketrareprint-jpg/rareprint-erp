@@ -138,7 +138,7 @@ function SuperEditPageInner() {
               <span key={h} style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>{h}</span>
             ))}
           </div>
-          <div className="create-order-product-row" style={{ display: "grid", gridTemplateColumns: "2.4fr 85px 65px 90px 85px 85px 105px 105px", gap: "8px", alignItems: "center" }}>
+          <div className="create-order-product-row has-field-labels" style={{ display: "grid", gridTemplateColumns: "2.4fr 85px 65px 90px 85px 85px 105px 105px", gap: "8px", alignItems: "center" }}>
             <div className="create-order-product-picker" style={{ position: "relative" }}>
               <input
                 type="text"
@@ -169,17 +169,38 @@ function SuperEditPageInner() {
                 </div>
               )}
             </div>
-            <input value={form.size} onChange={e => setForm(f => ({ ...f, size: e.target.value }))} placeholder="4x5" style={S.input} />
-            <input value={form.gsm} onChange={e => setForm(f => ({ ...f, gsm: e.target.value }))} style={S.input} />
-            <input value={form.paper} onChange={e => setForm(f => ({ ...f, paper: e.target.value }))} style={S.input} />
-            <MobileSelect value={form.sides} onChange={v => setForm(f => ({ ...f, sides: v }))} style={S.input}
-              options={[
-                { value: "SINGLE_SIDE", label: "Single" },
-                { value: "DOUBLE_SIDE", label: "Double" },
-              ]} />
-            <input type="number" min={1} value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} style={S.input} />
-            <input type="number" min={0} value={form.unitPrice} onChange={e => setForm(f => ({ ...f, unitPrice: e.target.value }))} style={S.input} />
-            <div style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d", display: "flex", alignItems: "center" }}>{fmt(amount)}</div>
+            <div>
+              <span className="create-order-field-label">Size</span>
+              <input value={form.size} onChange={e => setForm(f => ({ ...f, size: e.target.value }))} placeholder="4x5" style={S.input} />
+            </div>
+            <div>
+              <span className="create-order-field-label">GSM</span>
+              <input inputMode="numeric" value={form.gsm} onChange={e => setForm(f => ({ ...f, gsm: e.target.value }))} style={S.input} />
+            </div>
+            <div>
+              <span className="create-order-field-label">Paper</span>
+              <input value={form.paper} onChange={e => setForm(f => ({ ...f, paper: e.target.value }))} style={S.input} />
+            </div>
+            <div>
+              <span className="create-order-field-label">Sides</span>
+              <MobileSelect value={form.sides} onChange={v => setForm(f => ({ ...f, sides: v }))} style={S.input}
+                options={[
+                  { value: "SINGLE_SIDE", label: "Single" },
+                  { value: "DOUBLE_SIDE", label: "Double" },
+                ]} />
+            </div>
+            <div>
+              <span className="create-order-field-label">Qty</span>
+              <input type="number" inputMode="numeric" min={1} value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} style={S.input} />
+            </div>
+            <div>
+              <span className="create-order-field-label">Rate/Unit</span>
+              <input type="number" inputMode="decimal" min={0} value={form.unitPrice} onChange={e => setForm(f => ({ ...f, unitPrice: e.target.value }))} style={S.input} />
+            </div>
+            <div>
+              <span className="create-order-field-label">Amount</span>
+              <div style={{ ...S.input, background: "#f0fdf4", borderColor: "#86efac", fontWeight: 600, color: "#15803d", display: "flex", alignItems: "center" }}>{fmt(amount)}</div>
+            </div>
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -221,7 +222,7 @@ function ReviewInner() {
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="mobile-stack w-full text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
             <tr>
               <th className="px-3 py-2 text-left">Shopify item</th><th className="px-3 py-2 text-right">Qty</th>
@@ -369,6 +370,7 @@ function ReviewInner() {
 }
 
 export default function ShopifyReviewPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   return (
     <DashboardShell>
       <Suspense fallback={<div className="p-10 text-sm text-gray-500">Loading…</div>}>

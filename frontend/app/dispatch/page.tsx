@@ -4,6 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { PoliciesWidget } from "@/components/PoliciesWidget";
 import { MobileSelect } from "@/components/MobileSelect";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { useIsPhone } from "@/lib/useIsPhone";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuth, getAuthHeaders } from "@/lib/auth";
 import { sortPickupWarehouses, pickupWarehousesForCarrier } from "@/lib/dispatchPickup";
@@ -182,6 +183,9 @@ function fullShippingAddress(o: DispatchOrder): string {
 export default function DispatchPage() {
   const router = useRouter();
   const isNativeApp = useIsNativeApp();
+  // History cards: Android app and phone browser alike (2026-10-13).
+  const isPhone = useIsPhone();
+  const showHistoryCards = isNativeApp || isPhone;
   const [historyCompact, setHistoryCompact] = useState(true);
   const [tab, setTab] = useState<"queue" | "history" | "delivered" | "courier_charges">("queue");
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -1016,7 +1020,7 @@ export default function DispatchPage() {
                 </button>
                 <span className="text-xs text-slate-400">{displayedHistory.length} shipment{displayedHistory.length !== 1 ? "s" : ""}</span>
               </div>
-              {isNativeApp && displayedHistory.length > 0 && (
+              {showHistoryCards && displayedHistory.length > 0 && (
                 <div className="flex items-center justify-end gap-1.5">
                   <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5">
                     <button onClick={() => setHistoryCompact(true)}
@@ -1037,7 +1041,7 @@ export default function DispatchPage() {
                   {tab === "delivered" ? <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" /> : <History className="h-10 w-10 mx-auto mb-2 opacity-30" />}
                   <p>{tab === "delivered" ? "No delivered shipments found." : "No shipment history found."}</p>
                 </div>
-              ) : isNativeApp && historyCompact ? (
+              ) : showHistoryCards && historyCompact ? (
                 <div className="space-y-2">
                   {filteredHistory.map(h => (
                     <div key={h.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
@@ -1263,7 +1267,7 @@ export default function DispatchPage() {
                 <span className="text-xs text-slate-400 ml-auto">{courierCharges.length} shipment{courierCharges.length !== 1 ? "s" : ""}</span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid mobile-grid-3 grid-cols-3 gap-3">
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
                   <p className="text-xs font-semibold text-slate-500">Actual (courier cost)</p>
                   <p className="mt-1 text-lg font-bold text-slate-900">₹{courierChargesTotals.actual.toLocaleString("en-IN")}</p>
@@ -1288,7 +1292,66 @@ export default function DispatchPage() {
                   <p>No dispatched shipments found for this month.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                <>
+                {/* Phone: one card per shipment (table below is md+). */}
+                <div className="space-y-2 md:hidden">
+                  {courierCharges.map(row => (
+                    <div key={row.shipmentId} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-blue-700">{row.orderNo}</p>
+                          <p className="font-medium text-slate-800 break-words">{row.customerName}</p>
+                          <p className="text-slate-400">
+                            {new Date(row.dispatchDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                            {row.salesAgentName ? ` · ${row.salesAgentName}` : ""}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {row.net != null ? (
+                            <p className={`text-sm font-bold ${row.net >= 0 ? "text-green-700" : "text-red-700"}`}>{row.net >= 0 ? "+" : ""}₹{row.net.toLocaleString("en-IN")}</p>
+                          ) : <p className="text-slate-300">—</p>}
+                          <p className="text-[10px] text-slate-400">net</p>
+                        </div>
+                      </div>
+                      {row.items.length > 0 && <p className="mt-1 text-slate-600 break-words">{row.items.map(formatHistoryItem).join(", ")}</p>}
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {row.dispatchType === "COURIER" ? (
+                          <span className="font-mono text-slate-800">{row.awbNumber ?? "—"}{row.courierOrderStatus ? <span className="font-sans text-slate-400"> · {row.courierOrderStatus}</span> : null}</span>
+                        ) : (
+                          <span className="rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 font-semibold">
+                            {row.dispatchType === "TRANSPORT" ? "Transport" : row.dispatchType === "BY_HAND" ? "By Hand" : row.dispatchType === "SELF_COLLECTED" ? "Self Collected" : row.dispatchType ?? "—"}
+                          </span>
+                        )}
+                        {row.parcelStatus && <span className="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 font-semibold">{row.parcelStatus}</span>}
+                      </div>
+                      <div className="mt-2 grid mobile-grid-2 grid-cols-2 gap-2 border-t border-slate-100 pt-2">
+                        <div>
+                          <p className="text-slate-400">Actual</p>
+                          <p className="font-semibold text-slate-800">{row.actual != null ? `₹${row.actual.toLocaleString("en-IN")}` : "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Taken from customer</p>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number" inputMode="decimal" min={0} step="0.01"
+                              placeholder="0"
+                              defaultValue={row.taken ?? ""}
+                              onBlur={e => {
+                                const v = e.target.value;
+                                if (v.trim() === "" || Number(v) === row.taken) return;
+                                void saveTakenAmount(row.shipmentId, v);
+                              }}
+                              disabled={savingTakenId === row.shipmentId}
+                              className="w-full min-h-[40px] rounded-md border border-slate-200 px-2 text-sm font-semibold outline-none focus:border-blue-400 disabled:opacity-60"
+                            />
+                            {savingTakenId === row.shipmentId && <Loader2 className="h-3 w-3 animate-spin text-blue-600" />}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
                   <table className="w-full text-left text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
@@ -1370,6 +1433,7 @@ export default function DispatchPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -1584,7 +1648,33 @@ export default function DispatchPage() {
                           {allSelected ? "Deselect All" : "Select All"}
                         </button>
                       </div>
-                      <div className="overflow-x-auto">
+                      {/* Phone: one tappable row per item (table below is md+). */}
+                      <div className="space-y-1.5 md:hidden">
+                        {o.readyItems.map((item, idx) => {
+                          const isSelected = orderSelected.has(item.id);
+                          return (
+                            <button key={item.id} type="button" onClick={() => toggleItem(o.id, item.id)}
+                              className={`flex w-full min-h-[44px] items-start gap-2 rounded-lg border p-2 text-left text-xs ${isSelected ? "border-brand-300 bg-brand-50" : "border-slate-200 bg-white"}`}>
+                              {isSelected ? <CheckSquare className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" /> : <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+                              <span className="min-w-0 flex-1">
+                                <span className="block">
+                                  <span className="whitespace-nowrap rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold mr-1">{o.orderNo}-{idx + 1}</span>
+                                  <span className="font-medium text-slate-800">{item.productName}</span>
+                                  <span className="text-[10px] text-slate-400 ml-1">({item.sku})</span>
+                                </span>
+                                <span className="mt-0.5 block text-slate-500">
+                                  {[item.size, item.gsm && `${item.gsm} GSM`, item.paper, item.sides === "SINGLE_SIDE" ? "Single" : item.sides === "DOUBLE_SIDE" ? "Double" : item.sides, item.printingType].filter(Boolean).join(" · ") || "—"}
+                                </span>
+                              </span>
+                              <span className="shrink-0 text-right">
+                                <span className="block font-semibold text-slate-700">Qty {item.quantity}</span>
+                                <span className="block text-slate-500">{item.weightKg.toFixed(2)}kg</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-xs min-w-[620px]">
                           <thead><tr className="border-b border-slate-100 text-slate-500">
                             <th className="pb-1 w-6" />
@@ -1607,7 +1697,7 @@ export default function DispatchPage() {
                                     {isSelected ? <CheckSquare className="h-3.5 w-3.5 text-brand-600" /> : <Square className="h-3.5 w-3.5 text-slate-400" />}
                                   </td>
                                   <td className="py-1.5">
-                                    <span className="rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold mr-1">{o.orderNo}-{idx + 1}</span>
+                                    <span className="whitespace-nowrap rounded-full bg-blue-100 text-blue-700 px-1.5 text-[10px] font-bold mr-1">{o.orderNo}-{idx + 1}</span>
                                     <span className="font-medium text-slate-800">{item.productName}</span>
                                     <span className="text-[10px] text-slate-400 ml-1">({item.sku})</span>
                                   </td>

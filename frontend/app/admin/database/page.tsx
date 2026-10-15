@@ -1,4 +1,5 @@
 ﻿"use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -58,6 +59,7 @@ type SqlResult = {
 };
 
 export default function AdminDbPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [tables, setTables] = useState<string[]>([]);
@@ -476,7 +478,7 @@ export default function AdminDbPage() {
                   {sqlResult.error ? (
                     <p className="p-3 text-xs text-red-600 font-mono">{sqlResult.error}</p>
                   ) : Array.isArray(sqlResult.rows) ? (
-                    <table className="w-full text-xs">
+                    <table className="mobile-stack w-full text-xs">
                       <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                         <tr>{sqlResult.columns?.map((c: string) => <th key={c} className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">{c}</th>)}</tr>
                       </thead>
@@ -535,7 +537,7 @@ export default function AdminDbPage() {
                 <div className="flex items-center justify-center flex-1"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
               ) : (
                 <div className="flex-1 overflow-auto">
-                  <table className="w-full text-xs">
+                  <table className="mobile-stack w-full text-xs">
                     <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600 whitespace-nowrap">Actions</th>

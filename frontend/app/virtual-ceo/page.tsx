@@ -1035,7 +1035,7 @@ export default function VirtualCeoPage() {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 16px" }}>
 
         {/* ── Header ── */}
-        <div style={{
+        <div className="vceo-header" style={{
           background: "linear-gradient(135deg, #1e293b 0%, #334155 100%)",
           borderRadius: 16, padding: "24px 28px", marginBottom: 24,
           display: "flex", alignItems: "center", gap: 16,
@@ -1050,7 +1050,7 @@ export default function VirtualCeoPage() {
               Last updated: {generatedAt} · Auto-WhatsApp daily at 10:00 AM
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="vceo-header-actions" style={{ display: "flex", gap: 10, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
             {reviewStatus?.status === "OK" && reviewStatus.completedAt && (
               <span style={{ fontSize: 11, color: "#4ade80", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
                 <CheckCheck size={12} /> Review done today
@@ -1085,7 +1085,7 @@ export default function VirtualCeoPage() {
             </div>
           );
           return (
-            <div style={{ background: allSeen ? "#f0fdf4" : "#f8fafc", border: `1px solid ${allSeen ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+            <div className="vceo-review-bar" style={{ background: allSeen ? "#f0fdf4" : "#f8fafc", border: `1px solid ${allSeen ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: allSeen ? "#15803d" : "#1e293b" }}>
                   {allSeen ? "All tasks reviewed — ready to submit!" : `Review progress: ${seenCount}/${total} tasks seen`}
@@ -1128,9 +1128,9 @@ export default function VirtualCeoPage() {
         </div>
 
         {/* ── Tabs ── */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 20, overflowX: "auto", background: "#f1f5f9", borderRadius: 10, padding: 4 }}>
+        <div className="mobile-tabs" style={{ display: "flex", gap: 4, marginBottom: 20, overflowX: "auto", background: "#f1f5f9", borderRadius: 10, padding: 4 }}>
           {TABS.filter(t => !t.adminOnly || isAdmin).map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => setTab(t.id)} data-active={tab === t.id}
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, border: "none",
                 background: tab === t.id ? "#fff" : "transparent",
@@ -1151,7 +1151,7 @@ export default function VirtualCeoPage() {
         {/* ── Daily Schedule Tab ── */}
         {tab === "daily" && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(520px, 1fr))", gap: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(520px, 100%), 1fr))", gap: 24 }}>
               <DepartmentSection title="Accounts" icon={DEPT_CONFIG.ACCOUNTS.icon} color={DEPT_CONFIG.ACCOUNTS.color}
                 items={report.accounts} onNavigate={navigate} tags={tags} cardTags={cardTags}
                 onTagChange={updateCardTag} taskActions={taskActions} onTaskAction={handleTaskAction}

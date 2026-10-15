@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -63,6 +64,7 @@ async function post(path: string, body?: unknown) {
 }
 
 export default function ShopifyInboxPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [role, setRole] = useState<string | null>(null);
   const [tab, setTab] = useState<"orders" | "carts">("orders");
   const [orderFilter, setOrderFilter] = useState("NEW");
@@ -174,7 +176,7 @@ export default function ShopifyInboxPage() {
             <div className="text-center text-sm text-gray-500 py-10">No Shopify orders here.</div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-              <table className="w-full text-sm">
+              <table className="mobile-stack w-full text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
                   <tr>
                     <th className="px-3 py-2 text-left">Order</th><th className="px-3 py-2 text-left">Date</th>
@@ -211,7 +213,7 @@ export default function ShopifyInboxPage() {
           <div className="text-center text-sm text-gray-500 py-10">No abandoned carts here.</div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-            <table className="w-full text-sm">
+            <table className="mobile-stack w-full text-sm">
               <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
                 <tr>
                   <th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">Items</th>

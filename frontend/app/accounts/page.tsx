@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useState, useMemo, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { PoliciesWidget } from "@/components/PoliciesWidget";
 import DateInput from "@/components/DateInput";
@@ -9,10 +9,12 @@ import { apiFetch } from "@/lib/apiFetch";
 import { Check, ChevronDown, ChevronUp, Loader2, X, Truck, Search, FileText, Pencil, Save, MessageCircle, AlertTriangle, Package, PackageCheck, DollarSign, Download, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
+import { useIsPhone } from "@/lib/useIsPhone";
 import { MobileSelect } from "@/components/MobileSelect";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { useStackedTables } from "@/lib/useStackedTables";
 
 type Payment = { id: string; date: string; amount: number; method: string; referenceNumber?: string; notes?: string; accountName: string; };
 type OrderItem = {
@@ -420,21 +422,31 @@ const VALID_TABS: Tab[] = ["pending", "accounting", "outstanding", "dispatch", "
 
 export default function AccountsPage() {
   const router = useRouter();
-  const isNativeApp = useIsNativeApp();
-  // Website keeps its original (desktop-table-style) layout; the Android app
-  // gets a compact, horizontally-wrapping layout instead — see useIsNativeApp.
+  useStackedTables(); // phone card layout for tables marked mobile-stack
+  // Desktop website keeps its original (table-style) layout; the Android app
+  // and (since 2026-10-15) the phone browser get the compact card layout.
+  // Every use of this flag on this page is layout-only.
+  const isAndroidApp = useIsNativeApp();
+  const isPhone = useIsPhone();
+  const isNativeApp = isAndroidApp || isPhone;
   const cx = (web: string, native: string) => (isNativeApp ? native : web);
   // Deep-links from elsewhere (e.g. the dashboard's Super Admin Tasks
   // section) pass ?tab=payment_verification — a fresh navigation onto this
   // page mounts it, so reading window.location.search once here is enough
   // (avoids next/navigation's useSearchParams, which needs a Suspense
   // boundary this large single-component page doesn't have).
-  const [tab, setTab] = useState<Tab>(() => {
-    if (typeof window === "undefined") return "pending";
+  // Starts on "pending" on both server and client (reading window/localStorage
+  // in the initializer made the first client render differ from the server
+  // HTML — a hydration error on every ?tab= link or remembered tab), then
+  // switches before the first paint. Must stay above the save effect below so
+  // the stored tab is read before it's overwritten.
+  const [tab, setTab] = useState<Tab>("pending");
+  useLayoutEffect(() => {
     const fromUrl = new URLSearchParams(window.location.search).get("tab") as Tab | null;
-    if (fromUrl && VALID_TABS.includes(fromUrl)) return fromUrl;
-    return (localStorage.getItem("accounts_active_tab") as Tab) ?? "pending";
-  });
+    const stored = localStorage.getItem("accounts_active_tab") as Tab | null;
+    const initial = fromUrl && VALID_TABS.includes(fromUrl) ? fromUrl : stored;
+    if (initial && initial !== "pending") setTab(initial);
+  }, []);
   useEffect(() => { localStorage.setItem("accounts_active_tab", tab); }, [tab]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -2350,7 +2362,7 @@ export default function AccountsPage() {
                         return (
                           <>
                             <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
+                            <table className="mobile-stack w-full text-xs">
                               <thead><tr className="border-b border-slate-100 text-slate-500">
                                 <th className="pb-1 text-left font-medium">Product</th>
                                 <th className="pb-1 text-right font-medium">Qty</th>
@@ -2484,7 +2496,7 @@ export default function AccountsPage() {
 
                   <div className={cx("p-4 space-y-3", "p-3 space-y-2")}>
                     {!isNativeApp && (
-                    <table className="w-full text-sm">
+                    <table className="mobile-stack w-full text-sm">
                       <thead><tr className="border-b border-slate-100 text-xs text-slate-500">
                         <th className="pb-1 text-left">Product</th>
                         <th className="pb-1 text-left">Size</th>
@@ -2851,7 +2863,7 @@ export default function AccountsPage() {
                             ))}
                           </div>
                         ) : (
-                        <table className="w-full text-xs">
+                        <table className="mobile-stack w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Invoice</th><th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">GSTIN</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2 text-center">WA</th><th className="px-3 py-2 text-center">Billing</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                             {salesInvoices.map(inv => <tr key={inv.id}><td className="px-3 py-2 font-semibold text-blue-700">{inv.invoiceNumber}</td><td className="px-3 py-2">{inv.customerName}</td><td className="px-3 py-2 font-mono text-slate-500">{inv.gstNumber || "—"}</td><td className="px-3 py-2 text-right">{fmt(inv.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(inv.totalAmount)}</td><td className="px-3 py-2 text-right text-red-600">{fmt(inv.balanceAmount)}</td><td className="px-3 py-2 text-center">{inv.whatsappStatus}</td><td className="px-3 py-2 text-center"><a href={`/billing?invoiceId=${inv.id}`} className="text-blue-600 hover:underline font-semibold">View →</a></td></tr>)}
@@ -2884,7 +2896,7 @@ export default function AccountsPage() {
                             ))}
                           </div>
                         ) : (
-                        <table className="w-full text-xs">
+                        <table className="mobile-stack w-full text-xs">
                           <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 text-left">Bill</th><th className="px-3 py-2 text-left">Vendor</th><th className="px-3 py-2 text-right">GST</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-right">Payable</th><th className="px-3 py-2 text-center">Status</th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                             {purchaseBills.map(b => <tr key={b.id}><td className="px-3 py-2 font-semibold text-slate-800">{b.billNumber}</td><td className="px-3 py-2">{b.vendorName}</td><td className="px-3 py-2 text-right">{fmt(b.taxAmount)}</td><td className="px-3 py-2 text-right font-semibold">{fmt(b.totalAmount)}</td><td className="px-3 py-2 text-right text-amber-700">{fmt(b.balanceAmount)}</td><td className="px-3 py-2 text-center">{b.status.replace("_", " ")}</td></tr>)}
@@ -3450,7 +3462,7 @@ export default function AccountsPage() {
                           ))}
                         </div>
                       ) : (
-                      <table className="w-full text-xs">
+                      <table className="mobile-stack w-full text-xs">
                         <thead><tr className="border-b border-slate-100 text-slate-500">
                           <th className="pb-1 text-left font-medium">Product</th>
                           <th className="pb-1 text-left font-medium">Size</th>
@@ -4080,7 +4092,7 @@ export default function AccountsPage() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                  <table className="w-full text-xs">
+                  <table className="mobile-stack w-full text-xs">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Date</th>
@@ -4678,7 +4690,7 @@ export default function AccountsPage() {
                         </div>
                       ) : (
                       <div className="w-full overflow-hidden">
-                        <table className="w-full" style={{ fontSize: "11px", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                        <table className="mobile-stack w-full" style={{ fontSize: "11px", borderCollapse: "collapse", tableLayout: "fixed" }}>
                           <colgroup>
                             <col style={{ width: "6%" }} />
                             <col style={{ width: "6%" }} />
@@ -5160,7 +5172,7 @@ export default function AccountsPage() {
                 </div>
               ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-300">
-                  <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
+                  <table className="mobile-stack w-full min-w-[1180px] text-sm border-collapse table-fixed">
                     <colgroup>
                       <col className="w-[36px]" />
                       <col className="w-[85px]" />
@@ -5422,7 +5434,7 @@ export default function AccountsPage() {
                 </div>
               ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-300">
-                  <table className="w-full min-w-[1180px] text-sm border-collapse table-fixed">
+                  <table className="mobile-stack w-full min-w-[1180px] text-sm border-collapse table-fixed">
                     <colgroup>
                       <col className="w-[85px]" />
                       <col />
@@ -5631,7 +5643,7 @@ export default function AccountsPage() {
                       </div>
                     ) : (
                     <div className="overflow-x-auto">
-                      <table className="w-full min-w-[720px] text-sm">
+                      <table className="mobile-stack w-full min-w-[720px] text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                             <th className="px-4 py-2 font-semibold">Employee</th>
@@ -5909,7 +5921,7 @@ export default function AccountsPage() {
                   </button>
                 </div>
               ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <table className="mobile-stack" style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                       <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Date</th>
@@ -5978,7 +5990,7 @@ export default function AccountsPage() {
                   </p>
                 </div>
               ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <table className="mobile-stack" style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                       <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Date</th>
@@ -6050,7 +6062,7 @@ export default function AccountsPage() {
                   </p>
                 </div>
               ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <table className="mobile-stack" style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid #e2e8f0" }}>
                       <th style={{ textAlign: "left", padding: "4px 8px", color: "#64748b", fontWeight: 600 }}>Date</th>

@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -18,6 +19,7 @@ const REPORTS: Array<{ key: ReportType; label: string; description: string }> = 
 ];
 
 export default function ReportsPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [type, setType] = useState<ReportType>("orders");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -104,7 +106,7 @@ export default function ReportsPage() {
             <h2 className="text-sm font-semibold text-slate-800">{rows.length} rows</h2>
           </div>
           <div className="overflow-auto">
-            <table className="min-w-full text-sm">
+            <table className="mobile-stack min-w-full text-sm">
               <thead className="bg-slate-50">
                 <tr>{columns.map(column => <th key={column} className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">{column}</th>)}</tr>
               </thead>

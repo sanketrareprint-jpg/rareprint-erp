@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -104,6 +105,7 @@ function fmtDate(d: string) {
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function BankStatementPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -455,7 +457,7 @@ export default function BankStatementPage() {
       <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
 
         {/* ── Header ── */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mobile-page-header flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Landmark className="w-7 h-7 text-blue-600" />
             <div>
@@ -463,7 +465,7 @@ export default function BankStatementPage() {
               <p className="text-xs text-gray-500">IDBI · {selectedBank.label} · A/c {selectedBank.accountNumber}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="mobile-page-header-actions flex items-center gap-2">
             <MobileSelect
               value={selectedAccount}
               onChange={(v) => { setSelectedAccount(v); setTxnPage(1); }}
@@ -644,7 +646,7 @@ export default function BankStatementPage() {
               <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="mobile-stack w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
                       <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 w-8">#</th>

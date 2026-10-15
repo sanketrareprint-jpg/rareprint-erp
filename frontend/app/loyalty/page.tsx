@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { useIsNativeApp } from "@/lib/useIsNativeApp";
@@ -69,6 +70,7 @@ const TYPE_META: Record<LoyaltyTxnType, { label: string; color: string; icon: Re
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function LoyaltyPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const isNativeApp = useIsNativeApp();
   const [customerListCompact, setCustomerListCompact] = useState(true);
   const [activeTab, setActiveTab] = useState<"customer" | "bonus">("customer");
@@ -632,7 +634,7 @@ export default function LoyaltyPage() {
                 </div>
               ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm table-fixed min-w-[900px]">
+                <table className="mobile-stack w-full text-sm table-fixed min-w-[900px]">
                   <colgroup>
                     <col className="w-[180px]" />
                     <col className="w-[120px]" />
@@ -744,7 +746,7 @@ export default function LoyaltyPage() {
                 <p className="text-sm text-gray-400 px-5 py-8 text-center">No transactions yet for this number.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="mobile-stack w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Date</th>

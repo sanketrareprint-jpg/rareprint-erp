@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -42,6 +43,7 @@ const S = {
 };
 
 export default function ParcelBookingPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
@@ -379,7 +381,7 @@ export default function ParcelBookingPage() {
             <p style={{ fontSize: 12, color: "#64748b" }}>No parcels booked yet.</p>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <table className="mobile-stack" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ textAlign: "left", color: "#94a3b8", fontSize: 10, textTransform: "uppercase" }}>
                     <th style={{ padding: "4px 8px" }}>Order</th>

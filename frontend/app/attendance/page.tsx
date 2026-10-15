@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -46,6 +47,7 @@ const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 export default function AttendancePage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const me = getStoredUser();
   const canAccess = me?.role === "ADMIN" || me?.role === "ACCOUNTS";
 
@@ -307,7 +309,7 @@ export default function AttendancePage() {
               <div className="p-4 text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading...</div>
             ) : (
               <div className="overflow-x-auto border border-slate-200 rounded-lg">
-                <table className="w-full text-xs">
+                <table className="mobile-stack w-full text-xs">
                   <thead>
                     <tr className="text-left text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
                       <th className="py-2 px-2">Date</th>
@@ -379,7 +381,7 @@ export default function AttendancePage() {
           {showHistory && (
             <div className="overflow-x-auto border border-slate-200 rounded-lg">
               <p className="text-[11px] text-slate-400 px-2 pt-2">Mark a sheet Final to make it the one everyone sees for that month — any other upload covering the same month is then ignored (your hand-corrected days on the grid still always apply).</p>
-              <table className="w-full text-xs">
+              <table className="mobile-stack w-full text-xs">
                 <thead>
                   <tr className="text-left text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
                     <th className="py-2 px-2">Period covered</th>
@@ -527,7 +529,7 @@ export default function AttendancePage() {
           {loadingGrid ? (
             <div className="p-6 text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading...</div>
           ) : (
-            <table className="w-full text-xs">
+            <table className="mobile-stack w-full text-xs">
               <thead>
                 <tr className="text-left text-slate-500 uppercase border-b border-slate-200 bg-slate-50">
                   <th className="py-2 px-2">Date</th>

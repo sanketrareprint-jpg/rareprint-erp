@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -211,6 +212,7 @@ function CrmPageContent() {
     ? { href: `https://wa.me/91${phone}`, target: "_blank", rel: "noreferrer" }
     : { href: whatsappAppUrl(phone, "") };
   const router = useRouter();
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [todayFollowUps, setTodayFollowUps] = useState<any[]>([]);
@@ -798,9 +800,9 @@ function CrmPageContent() {
         </div>
 
         {/* TABS */}
-        <div className="flex gap-1 mt-3 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="mobile-tabs flex gap-1 mt-3 overflow-x-auto pb-1 -mx-1 px-1">
           {(["list", "kanban", "followups", "notcontacted"] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)}
+            <button key={v} onClick={() => setView(v)} data-active={view === v}
               className={`text-xs sm:text-sm px-3 py-1.5 rounded-lg font-medium whitespace-nowrap flex-shrink-0 ${view === v ? "bg-blue-600 text-white" : v === "notcontacted" ? "text-red-600 hover:bg-red-50" : "text-slate-600 hover:bg-slate-100"}`}>
               {v === "followups" ? `📅 Follow-ups (${todayFollowUps.length})` : v === "list" ? "📋 List" : v === "kanban" ? "🗂 Kanban" : `📵 Not Contacted${notContactedList.length ? ` (${notContactedList.length})` : ""}`}
             </button>
@@ -1136,7 +1138,7 @@ function CrmPageContent() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="mobile-stack w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     {["Name", "Phone", "Agent", "Tag", "Date Assigned", "Last Active", "Status", "Next Follow-up", "Actions"].map((h) => (

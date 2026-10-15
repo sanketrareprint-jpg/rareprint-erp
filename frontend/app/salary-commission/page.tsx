@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -37,6 +38,7 @@ function monthLabel(year: number, month: number) {
 }
 
 export default function SalaryCommissionPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const me = getStoredUser();
   const isAdmin = me?.role === "ADMIN";
 
@@ -271,7 +273,7 @@ export default function SalaryCommissionPage() {
                           ? new Date(sheet.verification.verifiedAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
                           : "—"}
                       </div>
-                      <table className="w-full text-xs">
+                      <table className="mobile-stack w-full text-xs">
                         <thead>
                           <tr className="text-slate-500 border-b border-slate-200">
                             <th className="text-left py-1.5 pr-2">Date</th>

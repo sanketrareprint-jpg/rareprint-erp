@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { API_BASE_URL } from "@/lib/api";
@@ -79,6 +80,7 @@ function slugKey(label: string, existing: string[]): string {
 // ─────────────────────────── Page ───────────────────────────
 
 export default function CertificateGeneratorPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [step, setStep] = useState<"templates" | "editor" | "upload" | "mapping" | "sheet" | "generate">("templates");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
@@ -824,7 +826,7 @@ function MappingStep({
         <div className="mb-4">
           <div className="text-sm font-semibold text-slate-700 mb-2">Sample data</div>
           <div className="overflow-x-auto border rounded-lg">
-            <table className="text-xs w-full">
+            <table className="mobile-stack text-xs w-full">
               <thead className="bg-slate-50"><tr>{job.columns.map((c) => <th key={c} className="px-2 py-1 text-left font-semibold text-slate-500">{c}</th>)}</tr></thead>
               <tbody>{job.sampleRows.map((r, i) => <tr key={i} className="border-t">{job.columns.map((c) => <td key={c} className="px-2 py-1">{String(r[c] ?? "")}</td>)}</tr>)}</tbody>
             </table>

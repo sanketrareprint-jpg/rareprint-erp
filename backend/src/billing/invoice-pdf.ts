@@ -148,6 +148,16 @@ function rupee(n: number): string {
   return `₹${money(n)}`;
 }
 
+// Per-unit rates can carry paise beyond 2 places (₹4.484 × 10,000 =
+// ₹44,840) — show up to 4 decimals, trailing zeros trimmed but never fewer
+// than 2, so Quantity × Price/Unit visibly adds up to Amount (2026-10-13).
+function rateRupee(n: number): string {
+  const rounded = Math.round((Number.isFinite(n) ? n : 0) * 10000) / 10000;
+  const [, decimals] = Math.abs(rounded).toFixed(4).split('.');
+  const intPart = money(Math.trunc(rounded)).split('.')[0];
+  return `₹${intPart}.${decimals.replace(/0+$/, '').padEnd(2, '0')}`;
+}
+
 function sanitize(value: string | null | undefined): string {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
 }
@@ -1134,7 +1144,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       colX += cols[3].width;
       boldText(sanitize(item.unit) || 'PCS', colX + 3, y + 7, { width: cols[4].width - 6, height: 12, ellipsis: true, align: 'right' }, HS_UNIT);
       colX += cols[4].width;
-      boldText(rupee(item.unitPrice), colX + 3, y + 7, { width: cols[5].width - 6, height: 12, ellipsis: true, align: 'right' }, HS_PRICE);
+      boldText(rateRupee(item.unitPrice), colX + 3, y + 7, { width: cols[5].width - 6, height: 12, ellipsis: true, align: 'right' }, HS_PRICE);
       colX += cols[5].width;
 
       // GST(₹) — amount on top, rate% below, both right-aligned, same size

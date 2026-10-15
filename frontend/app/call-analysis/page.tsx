@@ -238,12 +238,12 @@ export default function CallAnalysisPage() {
   return (
     <DashboardShell>
       <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="mobile-page-header flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-slate-900">Call Analysis</h1>
             <p className="text-xs text-slate-500">Upload a sales call, transcribe it, and coach the next action.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="mobile-page-header-actions flex gap-2">
             <Link href="/call-analysis/history" className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
               <History className="h-4 w-4" /> History
             </Link>

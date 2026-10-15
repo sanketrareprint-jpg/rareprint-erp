@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -86,6 +87,7 @@ const TAG_COLORS = ["#f59e0b", "#ef4444", "#6366f1", "#10b981", "#0ea5e9", "#647
 
 export default function SettingsPage() {
   const [cfg, setCfg]         = useState<CarrierCfg | null>(null);
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [saved, setSaved]     = useState(false);
@@ -467,7 +469,7 @@ export default function SettingsPage() {
             <ConfigPanel title="Production Stages & Flow" icon={<Workflow size={16} />} action={<SmallButton onClick={addStage}><Plus size={13} /> Stage</SmallButton>}>
               <div className="space-y-3">
                 {erpConfig.productionStages.map((stage, index) => (
-                  <div key={stage.id} className="grid grid-cols-[1fr_1.2fr_32px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                  <div key={stage.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_32px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
                     <input value={stage.label} onChange={e => updateStage(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
                     <input value={stage.substages.join(", ")} onChange={e => updateStage(index, { substages: e.target.value.split(",").map(v => v.trim()).filter(Boolean) })} placeholder="Sub stages: Cutting, Lamination" className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
                     <button onClick={() => removeStage(index)} className="text-red-500 hover:bg-red-50 rounded-lg p-2"><Trash2 size={14} /></button>
@@ -504,7 +506,7 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 {(erpConfig.virtualCeoTags ?? []).length === 0 && <p className="text-xs text-gray-400">No tags yet.</p>}
                 {(erpConfig.virtualCeoTags ?? []).map((tag, index) => (
-                  <div key={tag.id} className="grid grid-cols-[1fr_150px_32px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                  <div key={tag.id} className="grid grid-cols-[minmax(0,1fr)_150px_32px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
                     <input value={tag.label} onChange={e => updateVirtualCeoTag(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
                     <div className="flex items-center gap-1.5">
                       {TAG_COLORS.map(color => (
@@ -526,7 +528,7 @@ export default function SettingsPage() {
 
             <ConfigPanel title="Role Access" icon={<Shield size={16} />}>
               <div className="overflow-x-auto">
-                <table className="min-w-full text-xs">
+                <table className="mobile-stack mobile-stack-grid min-w-full text-xs">
                   <thead><tr><th className="text-left py-2 pr-3 text-gray-500">Role</th>{erpConfig.modules.filter(m => m.enabled || m.fixed).map(m => <th key={m.key} className="px-2 py-2 text-gray-500 font-medium">{m.label}</th>)}</tr></thead>
                   <tbody>
                     {ROLES.map(role => (
@@ -1110,7 +1112,7 @@ export default function SettingsPage() {
             )}
             <div className="space-y-2">
               {fsPickupAddresses.map((row, index) => (
-                <div key={index} className="grid grid-cols-[1fr_110px_110px_28px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                <div key={index} className="grid mobile-grid-2 grid-cols-[1fr_110px_110px_28px] gap-2 items-center rounded-lg border border-gray-100 bg-gray-50 p-2">
                   <input value={row.name} onChange={e => updateFsPickupAddress(index, { name: e.target.value })}
                     placeholder="Name shown in Dispatch, e.g. Nagpur"
                     className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
@@ -1307,7 +1309,7 @@ function FieldConfigList({ fields, onChange, onRemove }: { fields: CustomField[]
       {fields.length === 0 && <p className="text-xs text-gray-400">No custom fields yet.</p>}
       {fields.map((field, index) => (
         <div key={field.id} className="rounded-lg border border-gray-100 bg-gray-50 p-2 space-y-2">
-          <div className="grid grid-cols-[1fr_110px_72px_28px] gap-2 items-center">
+          <div className="grid mobile-grid-2 grid-cols-[1fr_110px_72px_28px] gap-2 items-center">
             <input value={field.label} onChange={e => onChange(index, { label: e.target.value })} className="border border-gray-200 rounded-lg px-3 py-2 text-xs" />
             <MobileSelect value={field.type} onChange={v => onChange(index, { type: v as CustomField["type"] })} className="border border-gray-200 rounded-lg px-2 py-2 text-xs"
               options={FIELD_TYPES.map(type => ({ value: type, label: type }))} />

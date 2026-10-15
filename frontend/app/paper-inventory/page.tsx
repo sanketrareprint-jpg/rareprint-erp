@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { MobileSelect } from "@/components/MobileSelect";
@@ -135,6 +136,7 @@ function emptyItem(): POItem {
 
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function PaperInventoryPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const router = useRouter();
   const [tab, setTab] = useState<"po" | "statement" | "history" | "inhouse">("po");
 
@@ -529,7 +531,7 @@ function POTab({ purchaseOrders, loading, onRefresh, apiBase, onEdit, onVerify }
                   );
                 })}
               </div>
-              <table className="hidden md:table w-full text-sm">
+              <table className="mobile-stack hidden md:table w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
                     <th className="pb-2 font-medium">Paper</th>
@@ -1103,7 +1105,7 @@ function InHouseStickerTab({ balance, transactions, loading, apiFetch, onRefresh
               </div>
             ))}
           </div>
-          <table className="hidden md:table w-full text-sm">
+          <table className="mobile-stack hidden md:table w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
@@ -1450,7 +1452,7 @@ function POModal({ mode, initialPO, vendors, apiBase, getHeaders, onClose, onSav
             </div>
 
             <div className="border border-gray-200 rounded-xl overflow-x-auto">
-              <table className="w-full text-sm min-w-[900px]">
+              <table className="mobile-stack w-full text-sm min-w-[900px]">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500">Paper Name</th>
