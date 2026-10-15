@@ -1,1 +1,0 @@
-import{PrismaClient}from"@prisma/client";const p=new PrismaClient();const today=new Date();today.setHours(0,0,0,0);const r=await p.order.findMany({where:{orderDate:{gte:today},status:{not:"CANCELLED"}},select:{orderNumber:true,grandTotal:true,orderDate:true,status:true}});console.log(JSON.stringify(r));await p.$disconnect();
