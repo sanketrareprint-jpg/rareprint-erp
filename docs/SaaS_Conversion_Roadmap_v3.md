@@ -292,7 +292,14 @@ Unchanged from v2.
    fallback was removed. Not covered: theme colours (still RarePrint red), and
    the AiSensy key in git history should be rotated. demo-test-co had its
    variables corrected and 22 pending migrations applied the same day.
-8. Repo hygiene / split non-product folders out (Section 7).
+8. ~~Repo hygiene / split non-product folders out (Section 7).~~ — done
+   2026-10-15 (54fd2a0): repo root cut from 162 entries to 11 — push-main/,
+   _to_delete/, rareprint-website/, the old chatbot, deploy scripts, logs,
+   patches, business files and docs media removed (all backed up outside the
+   repo first); root-only .gitignore rules stop them coming back. Left on
+   purpose: root railway.json (only the unused melodious-patience service
+   reads it; remove both together), and one-off scripts inside backend/ and
+   frontend/, which were not touched.
 9. Onboard one real, low-risk customer manually first, watching every step,
    before trusting the scripts end-to-end unattended.
 
