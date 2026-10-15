@@ -6,7 +6,8 @@
 //    database) with quantity + rate, as many as needed; Not interested → reason
 //    (rate / quantity / trust / no requirement) with product, quantity and note;
 //    callback time; note.
-// "Save & call next / pause / stop" saves it on the call (POST /dialer/desk-response);
+// "Save & call next / pause / stop" saves it on the call (POST /dialer/desk-response) and, if the
+// phone is still ringing / on the call, also hangs it up (the backend sets the end-call flag);
 // the phone saves it with the real call duration as soon as the call ends —
 // without asking for the reply again — then dials next, pauses or stops.
 // "End call" asks the phone to hang up (POST /dialer/end-call).
@@ -348,7 +349,7 @@ export function DialerDeskPopup() {
               <div className="mt-2 text-xs">
                 {liveState === "WRAP_UP"
                   ? "Your phone is saving this now."
-                  : "Your phone saves this as soon as the call ends — no need to choose the reply there."}
+                  : "Ending the call on your phone — it then saves this (no need to choose the reply there). If the call doesn’t end, hang up on the phone."}
               </div>
               <button type="button" className="mt-3 text-sm font-semibold underline" onClick={() => changeAnswer(submitted)}>
                 Change answer
@@ -499,15 +500,15 @@ export function DialerDeskPopup() {
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => submit("NEXT")} disabled={!outcome || !!saving}
               className="min-w-[180px] flex-[2] rounded-lg bg-slate-900 px-4 py-3 text-base font-bold text-white disabled:opacity-50">
-              {saving === "NEXT" ? "Saving…" : "Save & call next"}
+              {saving === "NEXT" ? "Saving…" : canEndCall ? "Save, end call & call next" : "Save & call next"}
             </button>
             <button type="button" onClick={() => submit("PAUSE")} disabled={!outcome || !!saving}
               className="min-w-[130px] flex-1 rounded-lg border border-slate-400 bg-white px-4 py-3 text-sm font-semibold text-slate-800 disabled:opacity-50">
-              {saving === "PAUSE" ? "Saving…" : "Save & pause"}
+              {saving === "PAUSE" ? "Saving…" : canEndCall ? "Save, end call & pause" : "Save & pause"}
             </button>
             <button type="button" onClick={() => submit("STOP")} disabled={!outcome || !!saving}
               className="min-w-[130px] flex-1 rounded-lg border border-red-300 bg-white px-4 py-3 text-sm font-semibold text-red-700 disabled:opacity-50">
-              {saving === "STOP" ? "Saving…" : "Save & stop"}
+              {saving === "STOP" ? "Saving…" : canEndCall ? "Save, end call & stop" : "Save & stop"}
             </button>
           </div>
         </div>

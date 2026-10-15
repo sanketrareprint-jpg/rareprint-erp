@@ -1077,7 +1077,14 @@ export class DialerService {
       },
     });
     if (res.count === 0) throw new NotFoundException('This call was already saved on the phone, or the dialer moved on');
-    return { ok: true };
+    // Saved while the phone is still ringing / on the call: the agent is done
+    // with this customer, so also hang up — otherwise the phone keeps the call
+    // going and only saves + dials next after someone ends it by hand.
+    const ending = await this.prisma.dialerLock.updateMany({
+      where: { phone: v.phone, agentId: user.id, liveState: { in: ['DIALING', 'ON_CALL'] } },
+      data: { deskEndCallAt: new Date() },
+    });
+    return { ok: true, endingCall: ending.count > 0 };
   }
 
   /**
