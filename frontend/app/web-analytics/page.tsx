@@ -1,4 +1,5 @@
 "use client";
+import { useStackedTables } from "@/lib/useStackedTables";
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -86,7 +87,7 @@ function DataTable({ title, rows, columns, note }: { title: string; rows: ListRo
         <p className="px-3 py-4 text-sm text-gray-500">No data for this period.</p>
       ) : (
         <div className="max-h-96 overflow-auto">
-          <table className="w-full text-sm">
+          <table className="mobile-stack w-full text-sm">
             <thead className="sticky top-0 bg-gray-50 text-xs text-gray-500">
               <tr>
                 {columns.map((c, i) => (
@@ -113,6 +114,7 @@ function DataTable({ title, rows, columns, note }: { title: string; rows: ListRo
 }
 
 export default function WebAnalyticsPage() {
+  useStackedTables(); // phone card layout for tables marked mobile-stack
   const [range, setRange] = useState<Range>(28);
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
