@@ -6,7 +6,7 @@ import { MobileSelect } from "@/components/MobileSelect";
 import { API_BASE_URL } from "@/lib/api";
 import { getAuthHeaders } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { Loader2, Database, Search, Trash2, Edit2, Check, X, Play, ChevronLeft, ChevronRight, Upload, Download, Plus, Tag } from "lucide-react";
+import { Loader2, Database, Search, Trash2, Edit2, Check, X, Play, ChevronLeft, ChevronRight, Upload, Download, Plus, Tag, UserX, UserCheck } from "lucide-react";
 
 const TABLE_LABELS: Record<string, string> = {
   user: "Users", customer: "Customers", product: "Products",
@@ -33,7 +33,7 @@ const TABLE_COLUMNS: Record<string, string[]> = {
   godown: ["name","address","city","state","pincode","isActive"],
 };
 
-const PROTECTED = ["user", "order", "payment"];
+const PROTECTED = ["order", "payment"];
 const PRINTING_TYPE_OPTIONS = ["OFFSET", "DIGITAL", "SCREEN", "FLEX"];
 const PRODUCT_SIDE_OPTIONS = ["SINGLE_SIDE", "DOUBLE_SIDE"];
 const PAPER_TYPE_OPTIONS = ["Bond", "Maplitho", "Art", "Ivory", "Kraft", "NCR", "PP", "Synthetic", "Other"];
@@ -199,12 +199,36 @@ export default function AdminDbPage() {
   };
 
   const deleteRow = async (id: string) => {
-    if (!activeTable || !confirm("Delete this record?")) return;
+    const prompt = activeTable === "user"
+      ? "Permanently delete this user? This only works for users with no orders, payments or other history. It cannot be undone."
+      : "Delete this record?";
+    if (!activeTable || !confirm(prompt)) return;
     const res = await fetch(`${API_BASE_URL}/admin/db/table/${activeTable}/${id}`, {
       method: "DELETE", headers: getAuthHeaders(),
     });
     if (res.ok) loadTable(activeTable, page, search);
-    else alert("Delete failed");
+    else {
+      const e = await res.json().catch(() => ({}));
+      alert("Delete failed: " + formatAdminDbError(e.message || "Unknown error"));
+    }
+  };
+
+  // Deactivate/reactivate a user: blocks (or restores) login while keeping all their history.
+  const setUserActive = async (id: string, isActive: boolean) => {
+    const prompt = isActive
+      ? "Reactivate this user? They will be able to log in again."
+      : "Deactivate this user? They will be logged out and unable to log in. All their orders and history are kept.";
+    if (!confirm(prompt)) return;
+    const res = await fetch(`${API_BASE_URL}/admin/db/table/user/${id}`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive }),
+    });
+    if (res.ok) loadTable("user", page, search);
+    else {
+      const e = await res.json().catch(() => ({}));
+      alert((isActive ? "Reactivate" : "Deactivate") + " failed: " + formatAdminDbError(e.message || "Unknown error"));
+    }
   };
 
   const addRecord = async () => {
@@ -572,6 +596,15 @@ export default function AdminDbPage() {
                               <div className="flex gap-1">
                                 <button onClick={() => { setEditingRow(rowId); setEditData(rowEditData); }}
                                   className="p-1 rounded bg-brand-50 text-brand-600 hover:bg-brand-100"><Edit2 className="h-3 w-3" /></button>
+                                {activeTable === "user" && (
+                                  row.isActive === false ? (
+                                    <button onClick={() => setUserActive(rowId, true)} title="Reactivate user"
+                                      className="p-1 rounded bg-green-50 text-green-600 hover:bg-green-100"><UserCheck className="h-3 w-3" /></button>
+                                  ) : (
+                                    <button onClick={() => setUserActive(rowId, false)} title="Deactivate user (keeps history)"
+                                      className="p-1 rounded bg-amber-50 text-amber-600 hover:bg-amber-100"><UserX className="h-3 w-3" /></button>
+                                  )
+                                )}
                                 {!PROTECTED.includes(activeTable) && (
                                   <button onClick={() => deleteRow(rowId)}
                                     className="p-1 rounded bg-red-50 text-red-500 hover:bg-red-100"><Trash2 className="h-3 w-3" /></button>

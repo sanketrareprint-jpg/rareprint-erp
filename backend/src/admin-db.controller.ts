@@ -17,6 +17,37 @@ async function hashPasswordIfPlaintext(value: unknown): Promise<string> {
 
 type JwtUser = { id: string; role: string };
 
+// Owner account — never deletable or deactivatable from the DB admin screen.
+const SUPER_ADMIN_EMAIL = 'sanket.rareprint@gmail.com';
+
+// Every non-cascade [table, column] that points at User.id in schema.prisma.
+// Checked before a user may be permanently deleted (see findUserLinks).
+const USER_LINK_COLUMNS: [string, string][] = [
+  ['AttendanceImportSession', 'importedById'], ['AttendanceRecord', 'editedById'],
+  ['BankImportSession', 'importedById'], ['BankTransaction', 'checkedById'],
+  ['BankTransaction', 'recheckedById'], ['BankTransaction', 'reconciledById'],
+  ['BankTransaction', 'salaryForUserId'], ['CallAnalysis', 'agentId'],
+  ['CallLogImport', 'agentId'], ['CallLogImport', 'importedById'],
+  ['CallLogRecord', 'agentId'], ['Commission', 'salesAgentId'],
+  ['CommissionOverride', 'agentId'], ['CommissionOverride', 'setById'],
+  ['CommissionVerification', 'agentId'], ['CommissionVerification', 'verifiedById'],
+  ['CompanyHoliday', 'createdById'], ['CompanyTerms', 'createdById'],
+  ['Complaint', 'assignedToId'], ['Complaint', 'raisedById'],
+  ['ContactImport', 'importedById'], ['DailyLearningStreak', 'userId'],
+  ['DialerCall', 'agentId'], ['Employee', 'approvedById'], ['Employee', 'userId'],
+  ['EmployeeLeaveEntry', 'recordedById'], ['ImportedContact', 'agentId'],
+  ['ItemStageLog', 'changedById'], ['Lead', 'agentId'], ['LeadActivity', 'createdById'],
+  ['MachineReading', 'paidById'], ['MachineReading', 'recordedById'],
+  ['MarketingCampaign', 'createdById'], ['MarketingContact', 'assignedAgentId'],
+  ['MilestoneAttempt', 'userId'], ['Order', 'salesAgentId'],
+  ['Payment', 'receivedById'], ['Payment', 'verifiedById'],
+  ['PolicyDocument', 'createdById'], ['ProductionJob', 'assignedToId'],
+  ['QuizAttempt', 'userId'], ['RemittanceImportSession', 'importedById'],
+  ['RemittanceRecord', 'postedById'], ['Shipment', 'handledById'],
+  ['ShippingChargeRecord', 'importedById'], ['StatusLog', 'changedById'],
+  ['Task', 'assignedToId'], ['Task', 'createdById'], ['UserTopicProgress', 'userId'],
+];
+
 const ALLOWED_TABLES = [
   'user','customer','productCategory','product','productCostSlab','commissionRule',
   'paymentAccount','vendor','jobWork','printSheet','printSheetItem','sheetStageVendor',
@@ -89,6 +120,57 @@ export class AdminDbController {
 
   private checkAdmin(req: Request & { user: JwtUser }) {
     if (req.user.role !== 'ADMIN') throw new ForbiddenException('Admin only');
+  }
+
+  // Blocks removing (delete or deactivate) your own account or the owner account.
+  private async assertUserRemovable(req: Request & { user: JwtUser }, id: string) {
+    if (id === req.user.id) throw new ForbiddenException('You cannot remove your own account');
+    const target = await this.prisma.user.findUnique({ where: { id }, select: { email: true } });
+    if (!target) throw new BadRequestException('User not found');
+    if (target.email.toLowerCase() === SUPER_ADMIN_EMAIL) {
+      throw new ForbiddenException('The owner account cannot be removed');
+    }
+  }
+
+  // Lists the tables that still reference this user (e.g. ["Order: 12", "Payment: 3"]).
+  // Two sources, merged: (1) Postgres's live foreign-key catalog, which also picks up
+  // relations added in future; (2) USER_LINK_COLUMNS, because some production tables
+  // were created outside migrations and may have the column without a real FK.
+  // ON DELETE CASCADE links (login sessions, dialer locks, payment keywords) are
+  // skipped: the schema defines those as removed together with the user.
+  private async findUserLinks(id: string): Promise<string[]> {
+    const fks = await this.prisma.$queryRawUnsafe<{ tbl: string; col: string }[]>(`
+      SELECT cl.relname AS tbl, a.attname AS col
+      FROM pg_constraint c
+      JOIN pg_class cl     ON cl.oid = c.conrelid
+      JOIN pg_namespace ns ON ns.oid = cl.relnamespace AND ns.nspname = 'public'
+      JOIN pg_attribute a  ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+      WHERE c.contype = 'f'
+        AND c.confrelid = 'public."User"'::regclass
+        AND c.confdeltype <> 'c'
+    `);
+    const columns = new Map<string, [string, string]>();
+    for (const [tbl, col] of [...USER_LINK_COLUMNS, ...fks.map(f => [f.tbl, f.col] as [string, string])]) {
+      columns.set(`${tbl}.${col}`, [tbl, col]);
+    }
+    const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+    const countsByTable = new Map<string, number>();
+    for (const [tbl, col] of columns.values()) {
+      let n = 0;
+      try {
+        const rows = await this.prisma.$queryRawUnsafe<{ n: number }[]>(
+          `SELECT COUNT(*)::int AS n FROM public.${quote(tbl)} WHERE ${quote(col)} = $1`,
+          id,
+        );
+        n = rows[0]?.n ?? 0;
+      } catch (e: any) {
+        // Only a missing table/column (not in this deployment's DB) is safe to skip.
+        const msg = String(e?.message ?? e);
+        if (!/does not exist/.test(msg)) throw new BadRequestException(`Could not check ${tbl}: ${msg}`);
+      }
+      if (n > 0) countsByTable.set(tbl, (countsByTable.get(tbl) ?? 0) + n);
+    }
+    return [...countsByTable].map(([table, n]) => `${table}: ${n}`);
   }
 
   @Get('tables')
@@ -210,6 +292,7 @@ export class AdminDbController {
     // passwordHash is a required field, so a blank submission means "leave it alone"
     // (the edit form pre-fills with the existing hash; clearing it signals no change).
     if (name === 'user') {
+      if (cleaned.isActive === false) await this.assertUserRemovable(req, id);
       if (cleaned.passwordHash == null) {
         delete cleaned.passwordHash;
       } else {
@@ -233,7 +316,16 @@ export class AdminDbController {
   ) {
     this.checkAdmin(req);
     if (!ALLOWED_TABLES.includes(name)) throw new ForbiddenException('Table not allowed');
-    if (['user', 'order', 'payment'].includes(name)) throw new ForbiddenException('Cannot delete from protected table');
+    if (['order', 'payment'].includes(name)) throw new ForbiddenException('Cannot delete from protected table');
+    if (name === 'user') {
+      await this.assertUserRemovable(req, id);
+      const linked = await this.findUserLinks(id);
+      if (linked.length > 0) {
+        throw new BadRequestException(
+          `This user has linked records (${linked.join(', ')}) and cannot be deleted. Deactivate them instead.`,
+        );
+      }
+    }
     try {
       await (this.prisma as any)[name].delete({ where: { id } });
       return { success: true };
