@@ -147,10 +147,12 @@ function computeCustomLayout(widthIn: number, heightIn: number, gapXIn: number, 
 
 // Custom sheet: unlike CUSTOM above (fit a grid into 12x18), the sheet is built
 // outward from the grid — the user sets sticker size, gaps and an exact
-// cols x rows count; stickers start right at the grid edge (0 margin) and a
-// fixed white margin is added on every side of the exported sheet. The
-// optional branding line prints centred in the bottom margin.
+// cols x rows count; stickers start right at the grid edge and a white
+// margin (user-set, default SHEET_MARGIN_IN) is added on every side of the
+// exported sheet. The optional branding line prints centred in the bottom margin.
 const SHEET_MARGIN_IN = 0.25;
+// Below this the bottom margin is too thin for the 7pt branding line.
+const SHEET_BRANDING_MIN_MARGIN_IN = 0.15;
 const SHEET_EXPORT_DPI = 600;
 const SHEET_BRANDING_FONT_PT = 7;
 
@@ -163,7 +165,7 @@ const BRANDING_LINES = [
   { heading: 'RarePrint - WhatsApp', text: 'Printed by RarePrint | WhatsApp +91 8645614505' },
 ];
 
-function computeSheetLayout(widthIn: number, heightIn: number, gapXIn: number, gapYIn: number, cols: number, rows: number) {
+function computeSheetLayout(widthIn: number, heightIn: number, gapXIn: number, gapYIn: number, cols: number, rows: number, marginIn: number) {
   const cellW = widthIn * 72;
   const cellH = heightIn * 72;
   const gapX = Math.max(0, Number.isFinite(gapXIn) ? gapXIn : 0) * 72;
@@ -173,7 +175,7 @@ function computeSheetLayout(widthIn: number, heightIn: number, gapXIn: number, g
   if (!valid) {
     return { cols: 0, rows: 0, startX: 0, startY: 0, stepX: 0, stepY: 0, imgW: 0, imgH: 0, cutW: 0, cutH: 0, offsetX: 0, offsetY: 0, pageW: PAGE_WIDTH, pageH: PAGE_HEIGHT };
   }
-  const margin = SHEET_MARGIN_IN * 72;
+  const margin = Math.max(0, Number.isFinite(marginIn) ? marginIn : 0) * 72;
   const stepX = cellW + gapX;
   const stepY = cellH + gapY;
   return {
@@ -216,14 +218,18 @@ function StickerSheetContent() {
   const [sheetCols, setSheetCols] = useState('1');
   const [sheetRows, setSheetRows] = useState('1');
   const [brandingIndex, setBrandingIndex] = useState('');
+  const [sheetMarginIn, setSheetMarginIn] = useState(String(SHEET_MARGIN_IN));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const customCfg = computeCustomLayout(parseFloat(customWidthIn), parseFloat(customHeightIn), parseFloat(customGapXIn) || 0, parseFloat(customGapYIn) || 0);
-  // Border stroke (custom only), in pt. Drawn inside each sticker's edge so
-  // it never spills into the gap or a neighbouring sticker.
-  const borderPt = layout === 'CUSTOM' && borderEnabled ? Math.max(0, parseFloat(borderWidthPt) || 0) : 0;
-  const sheetCfg = computeSheetLayout(parseFloat(sheetWidthIn), parseFloat(sheetHeightIn), parseFloat(sheetGapXIn) || 0, parseFloat(sheetGapYIn) || 0, Number(sheetCols), Number(sheetRows));
+  // Border stroke (custom size + custom sheet), in pt. Drawn inside each
+  // sticker's edge so it never spills into the gap or a neighbouring sticker.
+  const borderPt = (layout === 'CUSTOM' || layout === 'SHEET') && borderEnabled ? Math.max(0, parseFloat(borderWidthPt) || 0) : 0;
+  // Empty/invalid margin input counts as 0, same as the gap inputs.
+  const sheetMarginValue = Math.max(0, parseFloat(sheetMarginIn) || 0);
+  const sheetMarginPt = sheetMarginValue * 72;
+  const sheetCfg = computeSheetLayout(parseFloat(sheetWidthIn), parseFloat(sheetHeightIn), parseFloat(sheetGapXIn) || 0, parseFloat(sheetGapYIn) || 0, Number(sheetCols), Number(sheetRows), sheetMarginValue);
   const isSheet = layout === 'SHEET';
   // Custom size and custom sheet are not Toyocut die-cut: no cut lines / corner marks.
   const isCustomLayout = layout === 'CUSTOM' || isSheet;
@@ -326,7 +332,7 @@ function StickerSheetContent() {
       }
 
       if (brandingText) {
-        const marginPt = SHEET_MARGIN_IN * 72;
+        const marginPt = sheetMarginPt;
         const maxW = (pageW - 2 * marginPt) * SCALE;
         let fontPx = SHEET_BRANDING_FONT_PT * SCALE;
         ctx.font = `${fontPx}px Helvetica, Arial, sans-serif`;
@@ -373,7 +379,7 @@ function StickerSheetContent() {
     } else {
       drawStickers();
     }
-  }, [image, layout, cfg, borderPt, borderColor, isCustomLayout, pageW, pageH, brandingText]);
+  }, [image, layout, cfg, borderPt, borderColor, isCustomLayout, pageW, pageH, brandingText, sheetMarginPt]);
 
   useEffect(() => {
     drawPreview();
@@ -461,7 +467,7 @@ function StickerSheetContent() {
       }
 
       if (brandingText) {
-        const marginPt = SHEET_MARGIN_IN * 72;
+        const marginPt = sheetMarginPt;
         const maxW = pageW - 2 * marginPt;
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(0, 0, 0);
@@ -804,7 +810,32 @@ function StickerSheetContent() {
                     {brandingText && (
                       <p className="text-xs text-gray-500 truncate" title={brandingText}>{brandingText}</p>
                     )}
-                    <p className="text-xs text-gray-400">Margin 0 between grid edge and stickers · {SHEET_MARGIN_IN} in white border added on all sides</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400 shrink-0 w-10">Margin</span>
+                      <input type="number" min="0" step="0.05" title="Outer white margin on all sides" value={sheetMarginIn}
+                        onChange={(e) => setSheetMarginIn(e.target.value)} className={inputCls} />
+                      <span className="text-xs text-gray-400 shrink-0">in</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer shrink-0">
+                        <input type="checkbox" checked={borderEnabled} onChange={(e) => setBorderEnabled(e.target.checked)} />
+                        Stroke
+                      </label>
+                      {borderEnabled && (
+                        <>
+                          <input type="number" min="0" step="0.25" title="Stroke width" value={borderWidthPt}
+                            onChange={(e) => setBorderWidthPt(e.target.value)} className={inputCls} />
+                          <span className="text-xs text-gray-400 shrink-0">pt</span>
+                          <input type="color" title="Stroke colour" value={borderColor}
+                            onChange={(e) => setBorderColor(e.target.value)}
+                            className="h-6 w-8 shrink-0 border border-gray-300 rounded cursor-pointer" />
+                        </>
+                      )}
+                    </div>
+                    {brandingText && sheetMarginValue < SHEET_BRANDING_MIN_MARGIN_IN && (
+                      <p className="text-xs text-amber-600">Margin is too small for the branding line — it may overlap the stickers or get cut off.</p>
+                    )}
+                    <p className="text-xs text-gray-400">{sheetMarginValue} in white margin added on all sides · stroke is drawn inside each sticker&apos;s edge</p>
                   </div>
                 )}
                 {isSheet && sheetWidthIn && sheetHeightIn && sheetCfg.cols === 0 && (
@@ -826,8 +857,9 @@ function StickerSheetContent() {
                 ['Sheet Size', sheetSizeLabel],
                 ...(isSheet && sheetCfg.cols > 0 ? [
                   ['Export Pixels', `${Math.round(pageW / 72 * SHEET_EXPORT_DPI)} × ${Math.round(pageH / 72 * SHEET_EXPORT_DPI)} px`],
-                  ['Margin', `${SHEET_MARGIN_IN} in all sides`],
+                  ['Margin', `${sheetMarginValue} in all sides`],
                   ['Gap (H × V)', `${parseFloat(sheetGapXIn) || 0} × ${parseFloat(sheetGapYIn) || 0} in`],
+                  ['Stroke', borderPt > 0 ? `${borderPt} pt ${borderColor}` : 'None'],
                   ['Branding', brandingText ? BRANDING_LINES[Number(brandingIndex)].heading : 'None'],
                 ] : []),
                 ['Resolution', isSheet ? `${SHEET_EXPORT_DPI} DPI` : '300 DPI'],
