@@ -4,6 +4,7 @@ import {
   Post,
   Query,
   Param,
+  Body,
   Res,
   UploadedFiles,
   UseInterceptors,
@@ -11,7 +12,14 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { SheetLayoutService, SheetSize } from './sheet-layout.service';
+import {
+  SheetLayoutService,
+  SheetSize,
+  SHEET_DEFS,
+} from './sheet-layout.service';
+
+/** Most designs one free-layout sheet can hold. */
+const MAX_FREE_LAYERS = 60;
 
 @Controller('sheet-layout')
 export class SheetLayoutController {
@@ -71,6 +79,83 @@ export class SheetLayoutController {
     res.set({
       'Content-Type': 'image/jpeg',
       'Content-Disposition': `attachment; filename="sheet-${patternId}-600dpi.jpg"`,
+      'Content-Length': String(jpegBuffer.length),
+    });
+    res.end(jpegBuffer);
+  }
+
+  /**
+   * POST /api/sheet-layout/assemble-free?sheetSize=18x23
+   * Body: multipart/form-data — "layers" files named layer_<i>, plus a
+   * "placements" JSON field: [{ xIn, yIn, wIn, hIn }, …] indexed by <i>,
+   * bottom layer first. Returns: JPEG (600 DPI).
+   */
+  @Post('assemble-free')
+  @UseInterceptors(
+    FilesInterceptor('layers', MAX_FREE_LAYERS, {
+      limits: { fileSize: 40 * 1024 * 1024 },
+    }),
+  )
+  async assembleFreeSheet(
+    @Query('sheetSize') sheetSize: string,
+    @Body('placements') placementsRaw: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Res() res: Response,
+  ) {
+    if (!sheetSize || !(sheetSize in SHEET_DEFS))
+      throw new BadRequestException(`Unknown sheet size: ${sheetSize}`);
+    const sheet = SHEET_DEFS[sheetSize as SheetSize];
+    if (!files?.length)
+      throw new BadRequestException('Add at least one design');
+
+    let placements: unknown;
+    try {
+      placements = JSON.parse(placementsRaw ?? '');
+    } catch {
+      throw new BadRequestException('placements must be JSON');
+    }
+    if (!Array.isArray(placements) || placements.length > MAX_FREE_LAYERS)
+      throw new BadRequestException(
+        'placements must be an array of layer positions',
+      );
+
+    const limitW = sheet.widthIn * 2;
+    const limitH = sheet.heightIn * 2;
+    const layers = files.map((file) => {
+      const m = file.originalname.match(/layer[_-]?(\d+)/i);
+      const index = m ? parseInt(m[1], 10) : -1;
+      const p = placements[index] as Record<string, unknown> | undefined;
+      const nums = p ? [p.xIn, p.yIn, p.wIn, p.hIn] : [];
+      if (
+        nums.length !== 4 ||
+        !nums.every((n) => typeof n === 'number' && Number.isFinite(n))
+      )
+        throw new BadRequestException(
+          `Missing or invalid placement for ${file.originalname}`,
+        );
+      const [xIn, yIn, wIn, hIn] = nums as number[];
+      if (
+        wIn <= 0 ||
+        hIn <= 0 ||
+        wIn > limitW ||
+        hIn > limitH ||
+        Math.abs(xIn) > limitW ||
+        Math.abs(yIn) > limitH
+      )
+        throw new BadRequestException(
+          `Layer ${index + 1} is outside the allowed size/position`,
+        );
+      return { index, image: file.buffer, xIn, yIn, wIn, hIn };
+    });
+    layers.sort((a, b) => a.index - b.index); // stacking order: bottom first
+
+    const jpegBuffer = await this.svc.assembleFreeSheet(
+      sheetSize as SheetSize,
+      layers,
+    );
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Content-Disposition': `attachment; filename="sheet-free-${sheetSize}-600dpi.jpg"`,
       'Content-Length': String(jpegBuffer.length),
     });
     res.end(jpegBuffer);

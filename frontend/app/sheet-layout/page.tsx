@@ -8,6 +8,7 @@ import {
   listDesignSizes, storeDesignSizes, formatDesignSize, isValidDesignSize, MAX_DESIGN_SIZE_IN,
   type SavedSheetSummary, type DesignSize, type SavedDesignSize,
 } from '@/lib/sheetLayoutStore';
+import FreeLayoutEditor from './FreeLayoutEditor';
 
 type SheetSize = '18x23' | '19x25';
 type SlotType = 'SMALL_5_5x8_5' | 'MEDIUM_7_5x8_5' | 'LARGE_8_5x11' | 'XL_11x17';
@@ -170,6 +171,7 @@ function SheetLayoutContent() {
   const [loadedSheetId, setLoadedSheetId] = useState<string | null>(null);
   const [slotSizes, setSlotSizes] = useState<(DesignSize | null)[]>([]);
   const [designSizes, setDesignSizes] = useState<SavedDesignSize[]>([]);
+  const [mode, setMode] = useState<'slots' | 'free'>('slots');
   const [newSizeW, setNewSizeW] = useState('');
   const [newSizeH, setNewSizeH] = useState('');
 
@@ -472,8 +474,16 @@ function SheetLayoutContent() {
         <div>
           <span style={{ fontSize:13, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'#111' }}>Sheet Layout Composer</span>
           <span style={{ fontSize:11, color:'#9ca3af', marginLeft:10 }}>600 DPI · JPG · TARGET ~25MB</span>
+          <span style={{ display:'inline-flex', marginLeft:14, border:'1.5px solid #e5e7eb', borderRadius:6, overflow:'hidden', verticalAlign:'middle' }}>
+            {([['slots','Slot layouts'],['free','Free layout']] as const).map(([m, name]) => (
+              <button key={m} onClick={() => setMode(m)}
+                style={{ fontSize:11, fontWeight:700, padding:'3px 10px', border:'none', fontFamily:'inherit', cursor:'pointer', background:mode===m?'#4f46e5':'#fff', color:mode===m?'#fff':'#374151' }}>
+                {name}
+              </button>
+            ))}
+          </span>
         </div>
-        {pattern && (
+        {pattern && mode === 'slots' && (
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <span style={{ fontSize:11, color:'#6b7280' }}>{uploadedCount}/{pattern.totalSlots} uploaded</span>
             <div style={{ width:80, height:4, background:'#e5e7eb', borderRadius:2 }}>
@@ -488,7 +498,17 @@ function SheetLayoutContent() {
       </div>
 
       {/* ── Body ── */}
-      <div className="sheet-layout-body" style={{ flex:1, display:'flex', overflow:'hidden' }}>
+      <FreeLayoutEditor
+        active={mode === 'free'}
+        sheetSize={sheetSize}
+        sheet={sheet}
+        sheetSizes={(Object.keys(SHEET_DEFS) as SheetSize[]).map(k => ({ key: k, label: SHEET_DEFS[k].label }))}
+        onSheetSizeChange={k => { setSheetSize(k as SheetSize); skipPatternResetRef.current = null; setPattern(null); }}
+        sheetNumber={sheetNumber}
+        onSheetNumberChange={setSheetNumber}
+        downloadFileName={safeSheetName ? `Sheet-${safeSheetName}-600dpi.jpg` : `Sheet-free-${sheetSize}-600dpi.jpg`}
+      />
+      <div className="sheet-layout-body" style={{ flex:1, display:mode === 'slots' ? 'flex' : 'none', overflow:'hidden' }}>
 
         {/* ── LEFT PANEL ── */}
         <div className="sheet-layout-sidebar" style={{ width:256, flexShrink:0, borderRight:'1px solid #e5e7eb', background:'#fff', display:'flex', flexDirection:'column', overflow:'hidden' }}>

@@ -270,4 +270,101 @@ export class SheetLayoutService {
     }
     return bestBuffer!;
   }
+
+  /**
+   * Free layout: each layer is placed at an exact position/size in inches
+   * (from the sheet's top-left corner), stacked in array order (last = top).
+   * Layers arrive already cropped, rotated and paint-filled by the browser;
+   * here they are only scaled to their print size and composited. Parts of a
+   * layer hanging off the sheet are clipped.
+   */
+  async assembleFreeSheet(
+    sheetSize: SheetSize,
+    layers: Array<{
+      image: Buffer;
+      xIn: number;
+      yIn: number;
+      wIn: number;
+      hIn: number;
+    }>,
+  ): Promise<Buffer> {
+    const sheet = SHEET_DEFS[sheetSize];
+    if (!sheet)
+      throw new BadRequestException(`Unknown sheet size: ${sheetSize}`);
+    const sheetWPx = Math.round(sheet.widthIn * DPI);
+    const sheetHPx = Math.round(sheet.heightIn * DPI);
+
+    const baseBuffer = await sharp({
+      create: {
+        width: sheetWPx,
+        height: sheetHPx,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const compositeInputs: Array<{ input: Buffer; left: number; top: number }> =
+      [];
+    for (const layer of layers) {
+      const left = Math.round(layer.xIn * DPI);
+      const top = Math.round(layer.yIn * DPI);
+      const w = Math.max(1, Math.round(layer.wIn * DPI));
+      const h = Math.max(1, Math.round(layer.hIn * DPI));
+      // Visible part of the layer on the sheet
+      const visL = Math.max(0, left);
+      const visT = Math.max(0, top);
+      const visR = Math.min(sheetWPx, left + w);
+      const visB = Math.min(sheetHPx, top + h);
+      if (visR <= visL || visB <= visT) continue; // entirely off the sheet
+
+      let img = sharp(layer.image)
+        .flatten({ background: '#ffffff' })
+        .resize(w, h, { fit: 'fill' });
+      if (
+        visL !== left ||
+        visT !== top ||
+        visR !== left + w ||
+        visB !== top + h
+      ) {
+        // resize() and extract() in one pipeline run in that order in sharp
+        img = img.extract({
+          left: visL - left,
+          top: visT - top,
+          width: visR - visL,
+          height: visB - visT,
+        });
+      }
+      compositeInputs.push({
+        input: await img.png().toBuffer(),
+        left: visL,
+        top: visT,
+      });
+    }
+
+    const renderAtQuality = (quality: number) =>
+      sharp(baseBuffer)
+        .composite(compositeInputs)
+        .withMetadata({ density: DPI })
+        .jpeg({
+          quality,
+          chromaSubsampling: '4:2:0',
+          progressive: true,
+          optimiseCoding: true,
+          trellisQuantisation: true,
+          overshootDeringing: true,
+          optimiseScans: true,
+          mozjpeg: true,
+        })
+        .toBuffer();
+
+    let bestBuffer: Buffer | null = null;
+    for (const quality of JPEG_QUALITY_STEPS) {
+      const output = await renderAtQuality(quality);
+      bestBuffer = output;
+      if (output.length <= TARGET_OUTPUT_BYTES) return output;
+    }
+    return bestBuffer!;
+  }
 }
