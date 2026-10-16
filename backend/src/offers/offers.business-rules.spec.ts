@@ -69,7 +69,7 @@ function makePrisma() {
 }
 
 const orderDto = (items: any[], offerId?: string) => ({
-  customer: { name: 'Test Party', phone: '9876543210', dateOfBirth: '1990-05-12' },
+  customer: { name: 'Test Party', phone: '9876543210', contactPerson: 'Test Person', dateOfBirth: '1990-05-12' },
   items,
   offerId,
   leadSource: 'WALK_IN',

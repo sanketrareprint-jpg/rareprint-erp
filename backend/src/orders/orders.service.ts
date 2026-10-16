@@ -736,8 +736,21 @@ export class OrdersService {
     if (dto.customer.phone.trim().length !== 10) {
       throw new BadRequestException('Phone number must be exactly 10 digits');
     }
-    // DOB is optional (Create Order form); when sent it must be a real,
-    // non-future date.
+    // Contact Person Name and DOB are required on manual orders (Create Order
+    // form). Exempt: Parcel Booking (also posts here, has no DOB field) and
+    // Shopify orders (normally created directly by shopify.service.ts with
+    // leadSource 'SHOPIFY', never through this method -- checked here too in
+    // case one ever is).
+    const isShopifyOrder = (dto.leadSource ?? '').toUpperCase().startsWith('SHOPIFY');
+    if (!dto.isParcelBooking && !isShopifyOrder) {
+      if (!dto.customer.contactPerson?.trim()) {
+        throw new BadRequestException('Contact Person Name is required');
+      }
+      if (!dto.customer.dateOfBirth?.trim()) {
+        throw new BadRequestException('Date of birth is required');
+      }
+    }
+    // When sent, DOB must be a real, non-future date.
     let customerDob: Date | undefined;
     if (dto.customer.dateOfBirth) {
       customerDob = new Date(`${dto.customer.dateOfBirth}T00:00:00.000Z`);

@@ -610,6 +610,8 @@ export default function CreateOrderPage() {
     if (!customer.phone.trim()) { alert("Phone number is required"); return; }
     if (customer.phone.length !== 10) { alert("Phone number must be exactly 10 digits"); return; }
     if (customer.phone2 && customer.phone2.length !== 10) { alert("Phone 2 number must be exactly 10 digits"); return; }
+    if (!customer.contactPerson.trim()) { alert("Contact Person Name is required"); return; }
+    if (!customer.dateOfBirth) { alert("Date of Birth is required"); return; }
     if (customer.gstNumber && !GSTIN_FORMAT.test(customer.gstNumber)) { alert("GST Number doesn't match a valid GSTIN format (e.g. 27AAAAA0000A1Z5)"); return; }
     if (!leadSource) { alert("Lead source is required"); return; }
     const badLineIdx = lineItems.findIndex(i => !i.productId || i.quantity <= 0);
@@ -794,15 +796,21 @@ export default function CreateOrderPage() {
                   placeholder="email@example.com" style={S.input} />
               </div>
               <div>
-                <label style={S.label}>Contact Person Name</label>
+                <label style={S.label}>Contact Person Name *</label>
                 <input value={customer.contactPerson} onChange={e => setCustomer(c => ({ ...c, contactPerson: e.target.value }))}
                   placeholder="Person the Date of Birth belongs to" style={S.input} />
+                {submitAttempted && !customer.contactPerson.trim() && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>*Contact person name is required</p>
+                )}
               </div>
               <div>
-                <label style={S.label}>Date of Birth</label>
+                <label style={S.label}>Date of Birth *</label>
                 <input type="date" value={customer.dateOfBirth}
                   onChange={e => setCustomer(c => ({ ...c, dateOfBirth: e.target.value }))}
                   max={new Date().toISOString().slice(0, 10)} style={S.input} />
+                {submitAttempted && !customer.dateOfBirth && (
+                  <p style={{ margin: "3px 0 0", fontSize: "10px", color: "#dc2626", fontWeight: 600 }}>*Date of birth is required</p>
+                )}
               </div>
               <div className="create-order-field-wide" style={{ gridColumn: "span 2" }}>
                 <label style={S.label}>Address</label>
