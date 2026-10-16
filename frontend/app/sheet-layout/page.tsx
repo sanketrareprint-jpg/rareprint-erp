@@ -5,7 +5,8 @@ import { DashboardShell } from '@/components/dashboard-shell';
 import { API_BASE_URL } from '@/lib/api';
 import {
   listSavedSheets, getSavedSheet, putSavedSheet, deleteSavedSheet, newSheetId, formatBytes,
-  type SavedSheetSummary,
+  listDesignSizes, storeDesignSizes, formatDesignSize, isValidDesignSize, MAX_DESIGN_SIZE_IN,
+  type SavedSheetSummary, type DesignSize, type SavedDesignSize,
 } from '@/lib/sheetLayoutStore';
 
 type SheetSize = '18x23' | '19x25';
@@ -120,6 +121,36 @@ async function rotateBlob(file: File, deg: number): Promise<Blob> {
   });
 }
 
+/** Places an already-rotated design onto a white slot-sized canvas at its true
+ *  printed footprint, centred (anything larger than the slot is cropped). The
+ *  result matches the slot's pixel size, so the backend's fill-resize leaves it
+ *  undistorted — no backend change needed for custom design sizes. */
+async function placeInSlot(src: Blob, slotWPx: number, slotHPx: number, footWPx: number, footHPx: number): Promise<Blob> {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(src);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const oc = document.createElement('canvas');
+      oc.width = slotWPx; oc.height = slotHPx;
+      const ctx = oc.getContext('2d');
+      if (!ctx) { rej(new Error('Canvas unavailable')); return; }
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, slotWPx, slotHPx);
+      ctx.drawImage(img, (slotWPx - footWPx) / 2, (slotHPx - footHPx) / 2, footWPx, footHPx);
+      oc.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', 0.95);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Could not read a design image')); };
+    img.src = url;
+  });
+}
+
+/** Footprint on the sheet: a 90°/270° turn swaps the design's width and height. */
+const footprint = (size: DesignSize, deg: number): DesignSize =>
+  deg === 90 || deg === 270 ? { wIn: size.hIn, hIn: size.wIn } : size;
+
+const sizeKey = (s: DesignSize | null) => s ? `${s.wIn}x${s.hIn}` : '';
+const PRINT_DPI = 600; // mirrors backend sheet-layout.service DPI
+
 const ROT_STEPS = [0, 90, 180, 270] as const;
 type RotDeg = 0 | 90 | 180 | 270;
 const GAP_PRESETS = [0, 1, 2, 3, 5] as const;
@@ -137,6 +168,10 @@ function SheetLayoutContent() {
   const [savedSheets, setSavedSheets] = useState<SavedSheetSummary[]>([]);
   const [savingSheet, setSavingSheet] = useState(false);
   const [loadedSheetId, setLoadedSheetId] = useState<string | null>(null);
+  const [slotSizes, setSlotSizes] = useState<(DesignSize | null)[]>([]);
+  const [designSizes, setDesignSizes] = useState<SavedDesignSize[]>([]);
+  const [newSizeW, setNewSizeW] = useState('');
+  const [newSizeH, setNewSizeH] = useState('');
 
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -148,6 +183,11 @@ function SheetLayoutContent() {
   const sheet         = SHEET_DEFS[sheetSize];
   const slotList      = pattern ? pattern.rows.flatMap((row, r) => row.map((st, c) => ({ r, c, st }))) : [];
   const uploadedCount = slotImages.filter(Boolean).length;
+  // Slot sizes in inches (1 canvas unit = 1 inch) — used to warn when a chosen
+  // design size is bigger than its slot.
+  const slotInches    = pattern ? computeGeos(pattern, SHEET_DEFS[pattern.sheetSize].widthIn, SHEET_DEFS[pattern.sheetSize].heightIn, gapMm) : [];
+
+  useEffect(() => { setDesignSizes(listDesignSizes()); }, []);
 
   useEffect(() => {
     if (!pattern) return;
@@ -156,11 +196,34 @@ function SheetLayoutContent() {
     setSlotImages(Array(pattern.totalSlots).fill(null));
     setSlotFiles(Array(pattern.totalSlots).fill(null));
     setRotations(Array(pattern.totalSlots).fill(0));
+    setSlotSizes(Array(pattern.totalSlots).fill(null));
     setActiveSlot(null);
   }, [pattern]);
 
   const setRotation = (i: number, deg: RotDeg) =>
     setRotations(prev => { const n = [...prev]; n[i] = deg; return n; });
+
+  const setSlotSize = (i: number, size: DesignSize | null) =>
+    setSlotSizes(prev => { const n = [...prev]; n[i] = size; return n; });
+
+  const addDesignSize = () => {
+    const wIn = Math.round(parseFloat(newSizeW) * 1000) / 1000;
+    const hIn = Math.round(parseFloat(newSizeH) * 1000) / 1000;
+    if (!isValidDesignSize({ wIn, hIn })) {
+      alert(`Enter a width and height in inches, each above 0 and up to ${MAX_DESIGN_SIZE_IN}.`);
+      return;
+    }
+    if (designSizes.some(s => s.wIn === wIn && s.hIn === hIn)) { setNewSizeW(''); setNewSizeH(''); return; }
+    const next = [...designSizes, { id: newSheetId(), wIn, hIn }];
+    setDesignSizes(next); storeDesignSizes(next);
+    setNewSizeW(''); setNewSizeH('');
+  };
+
+  const removeDesignSize = (id: string) => {
+    // Slots already using this size keep it — only the saved shortcut goes.
+    const next = designSizes.filter(s => s.id !== id);
+    setDesignSizes(next); storeDesignSizes(next);
+  };
 
   // ── Canvas draw ──
   const draw = useCallback(() => {
@@ -195,11 +258,13 @@ function SheetLayoutContent() {
         const img  = imgs[i];
         const deg  = rotations[i] ?? 0;
         const isAct = activeSlot === i;
+        const size = slotSizes[i] ?? null;
 
         if (img) {
           const swap = deg === 90 || deg === 270;
-          const dw   = swap ? g.hPx : g.wPx;
-          const dh   = swap ? g.wPx : g.hPx;
+          // Fixed design size → its true inches (pre-rotation), centred; else stretch to fill.
+          const dw   = size ? size.wIn * (cw / s.widthIn) : swap ? g.hPx : g.wPx;
+          const dh   = size ? size.hIn * (ch / s.heightIn) : swap ? g.wPx : g.hPx;
           ctx.save();
           ctx.beginPath();
           ctx.rect(g.xPx, g.yPx, g.wPx, g.hPx);
@@ -252,7 +317,7 @@ function SheetLayoutContent() {
       el.onerror = () => {               pending--; if (!pending) render(imgs); };
       el.src = src;
     });
-  }, [pattern, slotImages, activeSlot, rotations, gapMm]);
+  }, [pattern, slotImages, activeSlot, rotations, gapMm, slotSizes]);
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -310,6 +375,7 @@ function SheetLayoutContent() {
         patternId: pattern.id,
         gapMm,
         rotations: rotations.slice(),
+        sizes: slotSizes.slice(),
         // The ORIGINAL uploaded files, unrotated — rotation stays a separate
         // setting so a reopened sheet is still editable, and re-downloading
         // rebuilds the same 600 DPI JPG the live composer would.
@@ -343,6 +409,10 @@ function SheetLayoutContent() {
       setGapMm(saved.gapMm);
       setSheetNumber(saved.name);
       setRotations(Array.from({ length: p.totalSlots }, (_, i) => (saved.rotations[i] ?? 0) as RotDeg));
+      setSlotSizes(Array.from({ length: p.totalSlots }, (_, i) => {
+        const sz = saved.sizes?.[i];
+        return isValidDesignSize(sz) ? { wIn: sz.wIn, hIn: sz.hIn } : null;
+      }));
       setSlotFiles(files);
       setSlotImages(files.map(f => f ? URL.createObjectURL(f) : null));
       setActiveSlot(null);
@@ -368,9 +438,19 @@ function SheetLayoutContent() {
     setIsGenerating(true);
     try {
       const fd = new FormData();
+      const s = SHEET_DEFS[pattern.sheetSize];
+      const printGeos = computeGeos(pattern, s.widthIn * PRINT_DPI, s.heightIn * PRINT_DPI, gapMm);
       for (let i = 0; i < slotFiles.length; i++) {
         const f = slotFiles[i]; if (!f) continue;
-        const blob = await rotateBlob(f, rotations[i] ?? 0);
+        const deg = rotations[i] ?? 0;
+        let blob = await rotateBlob(f, deg);
+        const size = slotSizes[i];
+        const g = printGeos[i];
+        if (size && g) {
+          const fp = footprint(size, deg);
+          blob = await placeInSlot(blob, Math.round(g.wPx), Math.round(g.hPx),
+            Math.round(fp.wIn * PRINT_DPI), Math.round(fp.hIn * PRINT_DPI));
+        }
         fd.append('slots', blob, `slot_${i}.jpg`);
       }
       const res = await fetch(`${API_BASE_URL}/sheet-layout/assemble?patternId=${pattern.id}&gapMm=${gapMm}`, { method: 'POST', body: fd });
@@ -496,6 +576,39 @@ function SheetLayoutContent() {
             </div>
           </div>
 
+          {/* Saved design sizes — pick one per slot below to print at that exact size */}
+          <div style={{ padding:'7px 10px', borderBottom:'1px solid #f3f4f6' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:5 }}>Design Sizes (inches)</div>
+            <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+              <input type="number" min="0" max={MAX_DESIGN_SIZE_IN} step="0.01" value={newSizeW} placeholder="W"
+                onChange={e => setNewSizeW(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addDesignSize(); }}
+                style={{ width:0, flex:1, padding:'4px 4px', fontSize:11, fontWeight:700, borderRadius:5, border:'1.5px solid #e5e7eb', textAlign:'center', color:'#374151', outline:'none' }} />
+              <span style={{ fontSize:11, color:'#9ca3af' }}>×</span>
+              <input type="number" min="0" max={MAX_DESIGN_SIZE_IN} step="0.01" value={newSizeH} placeholder="H"
+                onChange={e => setNewSizeH(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addDesignSize(); }}
+                style={{ width:0, flex:1, padding:'4px 4px', fontSize:11, fontWeight:700, borderRadius:5, border:'1.5px solid #e5e7eb', textAlign:'center', color:'#374151', outline:'none' }} />
+              <button onClick={addDesignSize} disabled={!newSizeW || !newSizeH}
+                style={{ padding:'4px 8px', fontSize:11, fontWeight:700, borderRadius:5, border:'none', background:newSizeW&&newSizeH?'#4f46e5':'#e5e7eb', color:newSizeW&&newSizeH?'#fff':'#9ca3af', cursor:newSizeW&&newSizeH?'pointer':'not-allowed' }}>
+                Save
+              </button>
+            </div>
+            {designSizes.length > 0 ? (
+              <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginTop:5 }}>
+                {designSizes.map(ds => (
+                  <span key={ds.id} style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10, fontWeight:600, padding:'1px 2px 1px 6px', borderRadius:3, background:'#eef2ff', color:'#4f46e5' }}>
+                    {formatDesignSize(ds)}
+                    <button onClick={() => removeDesignSize(ds.id)} title="Remove this saved size"
+                      style={{ border:'none', background:'transparent', color:'#9ca3af', cursor:'pointer', fontSize:10, padding:'0 2px' }}>✕</button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize:9, color:'#9ca3af', marginTop:4, lineHeight:1.35 }}>
+                Save sizes here, then choose one on any slot to print the design at that size instead of stretching it.
+              </div>
+            )}
+          </div>
+
           {/* Pattern list */}
           <div style={{ padding:'6px 10px 4px', borderBottom:'1px solid #f3f4f6', flexShrink:0 }}>
             <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:'0.08em', textTransform:'uppercase' }}>Layout Pattern</div>
@@ -550,6 +663,35 @@ function SheetLayoutContent() {
                           {has ? '↑' : '+'}
                         </button>
                       </div>
+                      {/* Design size */}
+                      {(() => {
+                        const sz = slotSizes[i] ?? null;
+                        const fp = sz ? footprint(sz, cur) : null;
+                        const slotIn = slotInches[i];
+                        const tooBig = !!fp && !!slotIn && (fp.wIn > slotIn.wPx + 0.001 || fp.hIn > slotIn.hPx + 0.001);
+                        const unsaved = !!sz && !designSizes.some(d => sizeKey(d) === sizeKey(sz));
+                        return (
+                          <>
+                            <select value={sizeKey(sz)}
+                              onChange={e => {
+                                const v = e.target.value;
+                                const pick = v ? (designSizes.find(d => sizeKey(d) === v) ?? (sz && sizeKey(sz) === v ? sz : null)) : null;
+                                setSlotSize(i, pick ? { wIn: pick.wIn, hIn: pick.hIn } : null);
+                              }}
+                              title="Print this design at a saved size (centred in the slot) instead of stretching it"
+                              style={{ width:'100%', marginTop:3, fontSize:10, padding:'2px 4px', borderRadius:3, border:`1px solid ${sz?'#4f46e5':'#e5e7eb'}`, background:sz?'#eef2ff':'#f9fafb', color:sz?'#4f46e5':'#6b7280', fontFamily:'inherit', cursor:'pointer' }}>
+                              <option value="">Size: fill slot{slotIn ? ` (${+slotIn.wPx.toFixed(2)}×${+slotIn.hPx.toFixed(2)}")` : ''}</option>
+                              {designSizes.map(d => <option key={d.id} value={sizeKey(d)}>Size: {formatDesignSize(d)}</option>)}
+                              {unsaved && sz && <option value={sizeKey(sz)}>Size: {formatDesignSize(sz)}</option>}
+                            </select>
+                            {tooBig && (
+                              <div style={{ fontSize:9, color:'#d97706', marginTop:2 }}>
+                                Bigger than this slot — edges will be cropped
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       {/* Rotation buttons */}
                       <div style={{ display:'flex', gap:3, marginTop:3 }}>
                         {ROT_STEPS.map(deg => (

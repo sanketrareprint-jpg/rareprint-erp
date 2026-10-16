@@ -32,8 +32,45 @@ export type SavedSheet = {
   gapMm: number;
   rotations: number[];
   slots: SavedSlot[];
+  /** Per-slot printed design size; null/missing = stretch to fill the slot.
+   *  Optional so sheets saved before this field existed still load. */
+  sizes?: (DesignSize | null)[];
   updatedAt: number;
 };
+
+/** A design's printed size in inches, in the design file's own orientation
+ *  (a 90°/270° rotation swaps its footprint on the sheet). */
+export type DesignSize = { wIn: number; hIn: number };
+export type SavedDesignSize = DesignSize & { id: string };
+
+// Saved design sizes are tiny, so plain localStorage — same "this browser on
+// this PC" scope as the saved sheets above.
+const SIZES_KEY = 'rareprint-sheet-layout-design-sizes';
+export const MAX_DESIGN_SIZE_IN = 25;
+
+export function isValidDesignSize(s: unknown): s is DesignSize {
+  if (!s || typeof s !== 'object') return false;
+  const { wIn, hIn } = s as Record<string, unknown>;
+  return typeof wIn === 'number' && typeof hIn === 'number'
+    && wIn > 0 && hIn > 0 && wIn <= MAX_DESIGN_SIZE_IN && hIn <= MAX_DESIGN_SIZE_IN;
+}
+
+export function listDesignSizes(): SavedDesignSize[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SIZES_KEY) ?? '[]');
+    return Array.isArray(raw)
+      ? raw.filter((s): s is SavedDesignSize => isValidDesignSize(s) && typeof (s as SavedDesignSize).id === 'string')
+      : [];
+  } catch { return []; }
+}
+
+export function storeDesignSizes(sizes: SavedDesignSize[]): void {
+  try { localStorage.setItem(SIZES_KEY, JSON.stringify(sizes)); } catch { /* storage blocked */ }
+}
+
+export function formatDesignSize(s: DesignSize): string {
+  return `${+s.wIn.toFixed(3)}×${+s.hIn.toFixed(3)}"`;
+}
 
 /** What the saved-sheets list shows — same record without the heavy blobs. */
 export type SavedSheetSummary = Omit<SavedSheet, 'slots'> & {
