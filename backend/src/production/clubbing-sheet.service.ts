@@ -1086,9 +1086,12 @@ export class ClubbingSheetService {
   }
 
   async getSheetHistory({ search, toStatus, page = 1, limit = 50 }: { search?: string; toStatus?: string; page?: number; limit?: number }) {
+    // AND both JSON-path filters — two `metadata` keys in one object would overwrite each other.
     const where: any = {
-      metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' },
-      ...(toStatus ? { metadata: { path: ['sheetStatus'], equals: toStatus } } : {}),
+      AND: [
+        { metadata: { path: ['eventType'], equals: 'SHEET_STATUS_CHANGED' } },
+        ...(toStatus ? [{ metadata: { path: ['sheetStatus'], equals: toStatus } }] : []),
+      ],
       ...(search ? { OR: [{ reason: { contains: search, mode: 'insensitive' } }] } : {}),
     };
 

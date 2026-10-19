@@ -295,7 +295,8 @@ export default function ProductionPage() {
       const res = await fetch(`${API_BASE_URL}/production/sheets/history?${params}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        if (seq === sheetHistorySeq.current) setSheetHistory(data);
+        // Backend (clubbing-sheet.service getSheetHistory) returns rows as `items`, not `logs`.
+        if (seq === sheetHistorySeq.current) setSheetHistory({ logs: data.items ?? data.logs ?? [], total: data.total ?? 0, page: data.page ?? page });
       }
     } finally {
       if (seq === sheetHistorySeq.current) setSheetHistoryLoading(false);
