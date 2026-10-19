@@ -14,11 +14,10 @@ const jakarta = Plus_Jakarta_Sans({
 // Hosted on Vercel, which sets VERCEL_PROJECT_PRODUCTION_URL to the
 // project's production domain (the .vercel.app one, or the custom domain
 // once attached) — so link previews follow a domain change with no code
-// edit. Outside Vercel, fall back to a reserved documentation domain
-// (rfc2606) — NOT printerp.in, which is a real competitor's live domain.
+// edit. Outside Vercel, fall back to the live domain.
 const SITE_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL
   ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-  : "https://rareprint-suite.example";
+  : "https://www.presserp.in";
 
 const TITLE = `${BRAND_NAME}: ERP built for printing businesses`;
 const DESCRIPTION =

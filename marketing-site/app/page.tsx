@@ -110,7 +110,7 @@ export default function HomePage() {
             </div>
           </FadeIn>
           <FadeIn delay={150}>
-            <HeroPhoto variant="press" caption="A print shop running on RarePrint, not a demo dataset." />
+            <HeroPhoto variant="press" caption={`A print shop running on ${BRAND_NAME}, not a demo dataset.`} />
           </FadeIn>
         </div>
       </section>

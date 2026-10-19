@@ -4,6 +4,8 @@
 // category actually ask, based on reviewing how similar printing-ERP
 // products present themselves.
 
+import { BRAND_NAME } from "./site-config";
+
 export type FaqItem = {
   question: string;
   answer: string;
@@ -11,7 +13,7 @@ export type FaqItem = {
 
 export const faqs: FaqItem[] = [
   {
-    question: "What is RarePrint Suite?",
+    question: `What is ${BRAND_NAME}?`,
     answer:
       "A cloud ERP built specifically for printing businesses: production tracking, accounts and GST billing, CRM, WhatsApp automation, dispatch, and more, all in one place.",
   },

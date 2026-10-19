@@ -1,6 +1,6 @@
 # marketing-site
 
-Public marketing/sales website for **RarePrint Suite** (placeholder name — see below) — the SaaS
+Public marketing/sales website for **PressERP** (live at https://www.presserp.in) — the SaaS
 version of RarePrint's ERP. Separate app from `../frontend` (the authenticated ERP product) and
 `../rareprint-website` (RarePrint's own printing storefront) — see `../docs/Marketing_Site_Roadmap.md`
 for the full plan and reasoning.
@@ -14,8 +14,9 @@ see the TODOs in those two files.
 The original placeholder brand was "PrintERP." Turns out that's a real, live competitor at
 **printerp.in** (Shubh Ventures, Raipur) selling almost the same thing — GST billing, CRM,
 production, inventory for print shops. Renamed everything to **"RarePrint Suite"** as a safer
-placeholder (2026-08-01). `BRAND_NAME` in `app/lib/site-config.ts` is the single place to change
-it again once a real name is picked — every page reads from that constant.
+placeholder (2026-08-01), then to **"PressERP"** once presserp.in was bought (2026-10-19).
+`BRAND_NAME` in `app/lib/site-config.ts` is the single place to change it — every page reads from
+that constant.
 
 ## What's deliberately NOT on this site (don't add without a real decision)
 
@@ -44,9 +45,8 @@ Runs on `http://localhost:3002` (3001 is already `frontend`, 3000 is Next's defa
 
 ## Before this goes live
 
-1. **Pick a real name and domain** — replace `BRAND_NAME` in `app/lib/site-config.ts` and
-   `SITE_URL` in `app/layout.tsx` (currently a placeholder `.example` domain, deliberately not
-   printerp.in). Open question #1 in the roadmap doc.
+1. ~~**Pick a real name and domain**~~ — done 2026-10-19: PressERP at presserp.in
+   (`BRAND_NAME` in `app/lib/site-config.ts`, `SITE_URL` fallback in `app/layout.tsx`).
 2. **Replace the WhatsApp number** in `app/lib/site-config.ts` — currently a placeholder. Two
    candidate numbers exist in `backend/.env`; didn't want to guess which is meant to be
    customer-facing.

@@ -3,11 +3,9 @@
 // docs/Marketing_Site_Roadmap.md, Phase D/E) — these are just where a
 // visitor's click currently goes.
 
-// Placeholder brand — "PrintERP" (the original placeholder) turned out to
-// be a real competitor's live product at printerp.in (Shubh Ventures,
-// Raipur). Renamed 2026-08-01 per Sanket's call to keep this as a
-// placeholder for now; swap when a real name/domain is locked.
-export const BRAND_NAME = "RarePrint Suite";
+// Product brand, live at presserp.in (2026-10-19). Not to be confused with
+// "PrintERP" — a real competitor's product at printerp.in.
+export const BRAND_NAME = "PressERP";
 
 // TODO: replace with the real customer-facing WhatsApp Business number.
 // (Two numbers exist in backend/.env — didn't want to guess which one is
