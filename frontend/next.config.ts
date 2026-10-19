@@ -22,6 +22,24 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+
+  // app.presserp.in is the PressERP product domain — its home page goes to
+  // the ERP login, not RarePrint's storefront (app/page.tsx's default).
+  // Every other host keeps the storefront redirect. Skipped in the static
+  // Android export, which has no server to run redirects.
+  ...(!isCapacitorBuild && {
+    async redirects() {
+      return [
+        {
+          source: "/",
+          has: [{ type: "host" as const, value: "app.presserp.in" }],
+          destination: "/login",
+          permanent: false,
+        },
+      ];
+    },
+  }),
+
   async headers() {
     return [
       {
