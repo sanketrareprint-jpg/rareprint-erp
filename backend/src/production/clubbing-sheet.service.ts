@@ -1101,12 +1101,18 @@ export class ClubbingSheetService {
       include: { changedBy: { select: { id: true, fullName: true } } },
     });
 
-    const seen = new Set<string>();
+    // One log row is written per order item on the sheet — collapse to one row per
+    // sheet + sheet status (latest first) and count how many items it covered.
+    const keyOf = (r: (typeof raw)[number]) => {
+      const meta = (r.metadata as any) || {};
+      return meta.sheetId ? `${meta.sheetId}|${meta.sheetStatus ?? ''}` : r.id;
+    };
+    const itemCounts = new Map<string, number>();
     const deduped: typeof raw = [];
     for (const row of raw) {
-      const sheetId = (row.metadata as any)?.sheetId ?? '';
-      const key = `${sheetId}|${row.fromStatus}|${row.toStatus}`;
-      if (!seen.has(key)) { seen.add(key); deduped.push(row); }
+      const key = keyOf(row);
+      if (!itemCounts.has(key)) deduped.push(row);
+      itemCounts.set(key, (itemCounts.get(key) ?? 0) + 1);
     }
 
     const total = deduped.length;
@@ -1122,6 +1128,7 @@ export class ClubbingSheetService {
         createdAt: r.createdAt,
         changedBy: r.changedBy,
         metadata: r.metadata,
+        _itemCount: itemCounts.get(keyOf(r)) ?? 1,
       })),
       total, page, limit,
       totalPages: Math.ceil(total / limit),
