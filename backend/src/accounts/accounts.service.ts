@@ -393,14 +393,19 @@ export class AccountsService {
           const { costPerUnit, costTotal, marginTotal, marginPct } = this.itemCostMargin(
             slabsByProductId.get(i.productId) ?? [], i.quantity, unitPrice, lineTotal,
           );
+          // Same notes-first, catalog-fallback resolution as the Dispatch
+          // Approval tab (getPendingDispatchOrders). This tab used to send
+          // only the product's catalog Size/GSM/Sides and never Paper.
+          const { size, gsm, paper, sides } = resolveItemDetails(i.productionNotes, i.product);
 
           return {
             productName:     i.product.name,
             productDescription: i.product.description,
             sku:             i.product.sku,
-            sizeInches:      i.product.sizeInches,
-            gsm:             i.product.gsm,
-            sides:           i.product.sides,
+            sizeInches:      size,
+            gsm,
+            paper,
+            sides,
             quantity:        i.quantity,
             unitPrice,
             lineTotal,

@@ -2501,6 +2501,7 @@ export default function AccountsPage() {
                         <th className="pb-1 text-left">Product</th>
                         <th className="pb-1 text-left">Size</th>
                         <th className="pb-1 text-left">GSM</th>
+                        <th className="pb-1 text-left">Paper</th>
                         <th className="pb-1 text-left">Sides</th>
                         <th className="pb-1 text-right">Qty</th>
                         <th className="pb-1 text-right">Rate</th>
@@ -2533,6 +2534,7 @@ export default function AccountsPage() {
                               </td>
                               <td className="py-1.5 text-slate-500 text-xs">{size}</td>
                               <td className="py-1.5 text-slate-500 text-xs">{gsm}</td>
+                              <td className="py-1.5 text-slate-500 text-xs">{item.paper || "—"}</td>
                               <td className="py-1.5 text-slate-500 text-xs">{String(sides).replace(/_/g, " ")}</td>
                               <td className="py-1.5 text-right">{item.quantity}</td>
                               <td className="py-1.5 text-right text-xs">{fmt(item.unitPrice)}</td>
@@ -2581,6 +2583,7 @@ export default function AccountsPage() {
                               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 <span><span className="text-slate-400">Size</span> <strong className="text-slate-700">{size}</strong></span>
                                 <span><span className="text-slate-400">GSM</span> <strong className="text-slate-700">{gsm}</strong></span>
+                                <span><span className="text-slate-400">Paper</span> <strong className="text-slate-700">{item.paper || "—"}</strong></span>
                                 <span><span className="text-slate-400">Sides</span> <strong className="text-slate-700">{sides}</strong></span>
                                 <span><span className="text-slate-400">Qty</span> <strong className="text-slate-700">{item.quantity}</strong></span>
                                 <span><span className="text-slate-400">Rate</span> <strong className="text-slate-700">{fmt(item.unitPrice)}</strong></span>
