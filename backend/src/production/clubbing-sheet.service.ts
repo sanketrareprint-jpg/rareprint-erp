@@ -1,6 +1,6 @@
 // backend/src/production/clubbing-sheet.service.ts
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { JobWorkStatus, OrderStatus, SheetQuality, SheetStatus, SheetProductionStage, ProductSides, PrintingType } from '@prisma/client';
+import { JobWorkStatus, OrderProductionStage, OrderStatus, Prisma, SheetQuality, SheetStatus, SheetProductionStage, ProductSides, PrintingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaperInventoryService } from '../paper-inventory/paper-inventory.service';
 
@@ -462,12 +462,41 @@ export class ClubbingSheetService {
   }
 
   async getClubbingOrders() {
+    // An order moves past IN_PRODUCTION as soon as one of its items is
+    // submitted for / goes through dispatch, even while another item is
+    // still at the clubbing vendor. Before 2026-10-22 only APPROVED /
+    // IN_PRODUCTION orders were listed, so that unfinished item vanished
+    // from Clubbing (order 1686: envelope shipped, bag still printing at
+    // SN PRINTER). Same idea as listInProduction: include the later
+    // statuses too, but only orders -- and only items -- with clubbing work
+    // genuinely left (not ready, not shipped, not cancelled).
+    // APPROVED / IN_PRODUCTION orders are listed exactly as before.
+    const inProductionStatuses: OrderStatus[] = [OrderStatus.APPROVED, OrderStatus.IN_PRODUCTION];
+    const unfinishedClubbingItem: Prisma.OrderItemWhereInput = {
+      productionCategory: 'CLUBBING',
+      itemProductionStage: { not: OrderProductionStage.READY_FOR_DISPATCH },
+      cancelledAt: null,
+      dispatchedAt: null,
+    };
     const orders = await this.prisma.order.findMany({
-      where: { status: { in: ['APPROVED', 'IN_PRODUCTION'] }, isSample: false },
+      where: {
+        isSample: false,
+        OR: [
+          { status: { in: inProductionStatuses } },
+          {
+            status: { in: [OrderStatus.PENDING_DISPATCH_APPROVAL, OrderStatus.READY_FOR_DISPATCH, OrderStatus.PARTIALLY_DISPATCHED] },
+            items: { some: unfinishedClubbingItem },
+          },
+        ],
+      },
       include: { customer: { select: { businessName: true, phone: true } }, salesAgent: { select: { id: true, fullName: true } }, items: { where: { productionCategory: 'CLUBBING' }, include: { product: { select: { name: true, sku: true, sizeInches: true, gsm: true, sides: true } }, jobWorks: { include: { vendor: { select: { name: true, id: true } } } } } } },
       orderBy: { updatedAt: 'desc' },
     });
-    const filtered = orders.filter(o => o.items.length > 0);
+    const filtered = orders
+      .map(o => inProductionStatuses.includes(o.status)
+        ? o
+        : { ...o, items: o.items.filter(i => i.itemProductionStage !== OrderProductionStage.READY_FOR_DISPATCH && !i.cancelledAt && !i.dispatchedAt) })
+      .filter(o => o.items.length > 0);
     // Fetch designFiles via raw query
     const itemIds = filtered.flatMap(o => o.items.map(i => i.id));
     let designFilesMap: Record<string, any[]> = {};
@@ -475,7 +504,10 @@ export class ClubbingSheetService {
       const placeholders = itemIds.map((_, i) => `$${i + 1}`).join(',');
       const results = await this.prisma.$queryRawUnsafe<{ id: string; designFiles: any }[]>(
         `SELECT id, "designFiles" FROM "OrderItem" WHERE id IN (${placeholders})`,
-        ...itemIds.slice(0, 50)
+        // One value per placeholder above. This used to pass only the first
+        // 50 ids while generating a placeholder for every id, so the query
+        // would fail outright once there were more than 50 clubbing items.
+        ...itemIds
       );
       designFilesMap = Object.fromEntries(
         results.map(r => [r.id, summarizeDesignFiles(r.designFiles)])

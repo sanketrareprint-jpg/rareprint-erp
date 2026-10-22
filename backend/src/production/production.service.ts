@@ -134,7 +134,10 @@ export class ProductionService {
       notes: o.notes,
       // Cancelled items shouldn't show up as production work at all -- see
       // the matching `where` exclusion above.
-      items: o.items.filter((i) => !i.cancelledAt).map((i) => {
+      // Already-shipped items (one half of a partly dispatched order) are done
+      // with production too, so they drop out here while the order's
+      // unfinished items stay listed.
+      items: o.items.filter((i) => !i.cancelledAt && !i.dispatchedAt).map((i) => {
         const { size, gsm, sides } = resolveItemDetails(i);
         return {
           id: i.id,

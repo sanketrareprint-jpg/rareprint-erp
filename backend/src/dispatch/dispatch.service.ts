@@ -2269,6 +2269,27 @@ export class DispatchService {
     });
     if (!order) throw new BadRequestException('Order not found');
 
+    // Only the items this dispatch actually covers -- the same set the
+    // Dispatch card shows (listReadyForDispatch): ready, not already shipped,
+    // and, for real orders, among the items Accounts approved
+    // (pendingDispatchItemIds; empty = legacy whole-order approval, so every
+    // ready item). This path used to stamp dispatchedAt on EVERY item and
+    // force order.status to DISPATCHED, so a partly-submitted order lost its
+    // unfinished items from every Production queue. Confirmed via order 1686
+    // (THAKUR MEDICAL STORE): only the envelope shipped, the bag still
+    // printing at the vendor disappeared, 2026-10-22.
+    const submittedIds: string[] = order.pendingDispatchItemIds ?? [];
+    const lockedIds = !order.isSample && submittedIds.length > 0 ? new Set(submittedIds) : null;
+    const itemsToDispatch = order.items.filter((i) =>
+      i.itemProductionStage === OrderProductionStage.READY_FOR_DISPATCH
+      && !i.dispatchedAt
+      && (lockedIds === null || lockedIds.has(i.id)));
+    if (itemsToDispatch.length === 0) {
+      throw new BadRequestException('No items on this order are ready and approved for dispatch');
+    }
+    const dispatchItemIds = itemsToDispatch.map((i) => i.id);
+    const newStatus = this.nextOrderStatusAfterDispatch(order, dispatchItemIds);
+
     const shipmentNumber = `MAN-${Date.now()}-${randomSuffix()}`;
     const carrierName = input.carrierName?.trim() || 'Manual';
     const trackingRef = input.awbNumber?.trim() || input.trackingNumber?.trim() || null;
@@ -2312,14 +2333,16 @@ export class DispatchService {
       // caused, but new manual dispatches shouldn't keep adding to it.
       // Confirmed via real orders resurfacing in Ready for Dispatch after
       // already being delivered, 2026-09-17.
+      // Stamped only on the items actually in this dispatch (see
+      // itemsToDispatch above), not the whole order.
       await tx.orderItem.updateMany({
-        where: { orderId },
+        where: { id: { in: dispatchItemIds } },
         data: { dispatchedAt: new Date() },
       });
 
       await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.DISPATCHED, ...(quotedCourierCharge != null ? { courierChargeQuoted: null } : {}) },
+        data: { status: newStatus, ...(quotedCourierCharge != null ? { courierChargeQuoted: null } : {}) },
       });
 
       await syncInvoiceCourierCharge(tx, orderId);
@@ -2328,7 +2351,7 @@ export class DispatchService {
         data: {
           orderId,
           fromStatus: order.status,
-          toStatus: OrderStatus.DISPATCHED,
+          toStatus: newStatus,
           changedById: userId,
           reason: `Manually marked as dispatched. Carrier: ${carrierName}${trackingRef ? `. AWB: ${trackingRef}` : ''}`,
           metadata: { shipmentNumber, carrierName, awbNumber: trackingRef },
@@ -2341,7 +2364,7 @@ export class DispatchService {
         customerName: order.customer.businessName,
         customerPhone: order.customer.phone,
         orderNo: order.orderNumber,
-        product: order.items.map(i => i.product.name).join(', '),
+        product: itemsToDispatch.map(i => i.product.name).join(', '),
         status: `Dispatched via ${carrierName}${trackingRef ? `. Tracking: ${trackingRef}` : ''}`,
         agentName: order.salesAgent?.fullName ?? brandTeamName(),
       });
