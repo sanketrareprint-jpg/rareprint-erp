@@ -10,7 +10,8 @@
 //   3. NOT_CONTACTED  — the agent's Not Contacted contacts (same rule as Call
 //                       Compliance: no call in the agent's imported call logs)
 //                       that have no Lead yet and haven't been dialed
-//   4. OLD_CALLBACK   — follow-ups that were due before today (most recent first)
+//   4. OLD_CALLBACK   — follow-ups that were due before today, most recent
+//                       day first, then in upload order within the day
 //   5. RESERVED_LEAD  — the agent's reserved leads (CRM import "Reserved leads"),
 //                       same rule as FRESH_LEAD, only once everything above is done
 // Follow-up tiers (1, 4) skip follow-ups already tried today (busy / not
@@ -146,7 +147,7 @@ export class DialerService {
     const freshLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, false, addedOn);
     const reservedLeads: Tier = (skip) => this.freshLeadCandidates(queueAgentId, skip, true, addedOn);
     const notContacted: Tier = (skip) => this.notContactedCandidates(queueAgentId, skip);
-    const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'desc', skip, todayStart);
+    const olderFollowUps: Tier = (skip) => this.followUpCandidates('OLD_CALLBACK', queueAgentId, { lt: todayStart }, 'newestDayFirst', skip, todayStart);
     const tiersByList: Record<DialerList, Tier[]> = {
       ALL: [dueToday, freshLeads, notContacted, olderFollowUps, reservedLeads],
       NEW_LEADS: [freshLeads, reservedLeads],
@@ -203,27 +204,34 @@ export class DialerService {
     source: QueueSource,
     agentId: string,
     window: Prisma.DateTimeFilter,
-    order: 'asc' | 'desc',
+    order: 'asc' | 'newestDayFirst',
     skip: number,
     todayStart: Date,
   ) {
+    // newestDayFirst (overdue follow-ups): the database picks the page, so a
+    // day's follow-ups stay in upload order even across page boundaries.
+    const page = order === 'newestDayFirst' ? await this.overdueFollowUpPage(agentId, todayStart, skip) : null;
     const [leadFollowUps, contactFollowUps] = await Promise.all([
       this.prisma.leadFollowUp.findMany({
-        where: { status: 'PENDING', scheduledAt: window, lead: { agentId, status: { not: LeadStatus.WON } } },
-        orderBy: { scheduledAt: order },
-        skip,
-        take: PAGE_SIZE,
+        where: {
+          ...(page ? { id: { in: page.leadFollowUpIds } } : {}),
+          status: 'PENDING',
+          scheduledAt: window,
+          lead: { agentId, status: { not: LeadStatus.WON } },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        ...(page ? {} : { skip, take: PAGE_SIZE }),
         select: { id: true, scheduledAt: true, createdAt: true, lead: { select: { id: true, phone: true, status: true } } },
       }),
       this.prisma.importedContactFollowUp.findMany({
         where: {
+          ...(page ? { id: { in: page.contactFollowUpIds } } : {}),
           status: 'PENDING',
           scheduledAt: window,
           contact: { agentId, leadId: null, pipelineStatus: { not: LeadStatus.WON } },
         },
-        orderBy: { scheduledAt: order },
-        skip,
-        take: PAGE_SIZE,
+        orderBy: { scheduledAt: 'asc' },
+        ...(page ? {} : { skip, take: PAGE_SIZE }),
         select: { id: true, scheduledAt: true, createdAt: true, contact: { select: { id: true, phone: true } } },
       }),
     ]);
@@ -283,10 +291,51 @@ export class DialerService {
     ].sort((a, b) =>
       order === 'asc'
         ? a.scheduledAt.getTime() - b.scheduledAt.getTime()
-        : b.scheduledAt.getTime() - a.scheduledAt.getTime(),
+        : istDayStart(b.scheduledAt).getTime() - istDayStart(a.scheduledAt).getTime() ||
+          a.scheduledAt.getTime() - b.scheduledAt.getTime(),
     );
 
-    return { items, more: leadFollowUps.length === PAGE_SIZE || contactFollowUps.length === PAGE_SIZE };
+    const more = page
+      ? page.leadFollowUpIds.length === PAGE_SIZE || page.contactFollowUpIds.length === PAGE_SIZE
+      : leadFollowUps.length === PAGE_SIZE || contactFollowUps.length === PAGE_SIZE;
+    return { items, more };
+  }
+
+  /**
+   * One page of overdue (before today) follow-up ids: newest day first (India
+   * time), then in schedule order within the day. An upload's Day 1/3/7/14/30
+   * follow-ups are scheduled in the sheet's row order, so this dials each day's
+   * batch in sheet order — plain "most recent first" dialed it backwards.
+   * Same filters as followUpCandidates' Prisma queries.
+   */
+  private async overdueFollowUpPage(agentId: string, todayStart: Date, skip: number) {
+    const istDay = Prisma.sql`(f."scheduledAt" + make_interval(mins => ${IST_OFFSET_MINUTES}::int))::date`;
+    const [leadRows, contactRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT f."id"
+        FROM "LeadFollowUp" f
+        JOIN "Lead" l ON l."id" = f."leadId"
+        WHERE f."status"::text = 'PENDING'
+          AND f."scheduledAt" < ${todayStart}
+          AND l."agentId" = ${agentId}
+          AND l."status"::text <> ${LeadStatus.WON}
+        ORDER BY ${istDay} DESC, f."scheduledAt" ASC, f."id" ASC
+        OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
+      `),
+      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT f."id"
+        FROM "ImportedContactFollowUp" f
+        JOIN "ImportedContact" c ON c."id" = f."contactId"
+        WHERE f."status"::text = 'PENDING'
+          AND f."scheduledAt" < ${todayStart}
+          AND c."agentId" = ${agentId}
+          AND c."leadId" IS NULL
+          AND c."pipelineStatus"::text <> ${LeadStatus.WON}
+        ORDER BY ${istDay} DESC, f."scheduledAt" ASC, f."id" ASC
+        OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
+      `),
+    ]);
+    return { leadFollowUpIds: leadRows.map((r) => r.id), contactFollowUpIds: contactRows.map((r) => r.id) };
   }
 
   /**
