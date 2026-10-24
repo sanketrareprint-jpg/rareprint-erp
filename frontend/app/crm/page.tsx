@@ -36,6 +36,8 @@ interface Lead {
   createdAt: string; updatedAt: string;
 }
 interface Stats { total: number; byStatus: Record<string, number>; hotLeads: number; todayFollowUps: number; }
+// Hot = the customer said they are interested (same rule as the backend's HOT_LEAD_STATUS). The stored isHot only reflects how complete the imported row was.
+const isHotLead = (lead: { status: LeadStatus }) => lead.status === "INTERESTED";
 // A contact flagged "not contacted" (AiSensy tag with no matching call-log
 // record). Managed like a normal lead: status + follow-up. If leadId is set,
 // it's linked to a real Lead row and status/follow-up actions go through the
@@ -111,10 +113,10 @@ function ScoreBadge({ score }: { score: number }) {
 function LeadCard({ lead, onClick, onCall }: { lead: Lead; onClick: () => void; onCall: () => void }) {
   const overdue = lead.nextFollowUp && new Date(lead.nextFollowUp.scheduledAt) < new Date();
   return (
-    <div onClick={onClick} className={`bg-white border rounded-xl p-3 cursor-pointer hover:shadow-md transition-all ${lead.isHot ? "border-orange-300" : "border-slate-200"}`}>
+    <div onClick={onClick} className={`bg-white border rounded-xl p-3 cursor-pointer hover:shadow-md transition-all ${isHotLead(lead) ? "border-orange-300" : "border-slate-200"}`}>
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          {lead.isHot && <span title="Hot lead">🔥</span>}
+          {isHotLead(lead) && <span title="Hot lead">🔥</span>}
           <span className="font-semibold text-slate-800 text-sm truncate">{displayName(lead)}</span>
         </div>
         <ScoreBadge score={lead.score} />
@@ -160,7 +162,7 @@ function MobileLeadRow({ lead, onOpen, onCall, onLog }: {
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            {lead.isHot && <span>🔥</span>}
+            {isHotLead(lead) && <span>🔥</span>}
             <span className="font-semibold text-slate-800 text-sm">{displayName(lead)}</span>
             {lead.isDuplicate && <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">⚠</span>}
           </div>
@@ -937,7 +939,7 @@ function CrmPageContent() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
-                            {lead.isHot && <span>🔥</span>}
+                            {isHotLead(lead) && <span>🔥</span>}
                             {lead.isDuplicate && <span title="Shared lead" className="text-red-500">⚠</span>}
                             <div>
                               <p className="font-semibold text-slate-800">{displayName(lead)}</p>
@@ -994,7 +996,7 @@ function CrmPageContent() {
               </div>
               {dialerLead ? (
                 <div className="p-6">
-                  {dialerLead.isHot && <div className="text-center mb-3"><span className="bg-orange-100 text-orange-700 text-xs font-bold px-3 py-1 rounded-full">🔥 Hot Lead</span></div>}
+                  {isHotLead(dialerLead) && <div className="text-center mb-3"><span className="bg-orange-100 text-orange-700 text-xs font-bold px-3 py-1 rounded-full">🔥 Hot Lead</span></div>}
                   <div className="text-center mb-6">
                     <p className="text-2xl font-bold text-slate-900 mb-1">{displayName(dialerLead)}</p>
                     {dialerLead.businessName && dialerLead.name?.trim() && <p className="text-slate-500">{dialerLead.businessName}</p>}
@@ -1272,7 +1274,7 @@ function CrmPageContent() {
               <div className="flex-1 min-w-0 text-center">
                 {isNativeApp && <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Name</p>}
                 <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                  {selectedLead.isHot && <span>🔥</span>}
+                  {isHotLead(selectedLead) && <span>🔥</span>}
                   <h2 className="text-base font-bold text-slate-900 truncate">{displayName(selectedLead)}</h2>
                 </div>
                 {selectedLead.businessName && selectedLead.name?.trim() && (

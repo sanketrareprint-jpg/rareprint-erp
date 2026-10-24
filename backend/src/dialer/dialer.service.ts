@@ -5,7 +5,8 @@
 // GET /dialer/next picks the logged-in agent's next number, in this order:
 //   1. FOLLOW_UP_DUE  — Lead / Not Contacted follow-ups scheduled for today (India time) and due now
 //   2. FRESH_LEAD     — the agent's NEW leads that have never been called,
-//                       newest day's leads first (optionally only one day's)
+//                       newest day's leads first, then in upload order
+//                       (optionally only one day's)
 //   3. NOT_CONTACTED  — the agent's Not Contacted contacts (same rule as Call
 //                       Compliance: no call in the agent's imported call logs)
 //                       that have no Lead yet and haven't been dialed
@@ -292,7 +293,8 @@ export class DialerService {
    * Tier 2 (reserved = false) / tier 5 (reserved = true): the agent's NEW
    * leads whose number has no call logged anywhere. Newest day's leads
    * first (India time), so today's import is dialed before older ones; within
-   * a day, hot / high-score first, then in import order. `addedOn` = only
+   * a day, in import order (the sheet's row order — not by hot/score, which
+   * reshuffled the list and looked random to sellers). `addedOn` = only
    * leads added in that window.
    * Checked per phone, not per Lead row: the same number is often on several
    * Lead rows (a CSV imported twice, or given to another seller), and a call
@@ -317,7 +319,7 @@ export class DialerService {
             AND a."type"::text IN (${Prisma.join(CALL_ACTIVITY_TYPES)})
         )
       ORDER BY (l."createdAt" + make_interval(mins => ${IST_OFFSET_MINUTES}::int))::date DESC,
-        l."isHot" DESC, l."score" DESC, l."createdAt" ASC
+        l."createdAt" ASC, l."id" ASC
       OFFSET ${skip}::int LIMIT ${PAGE_SIZE}::int
     `);
     const items: Candidate[] = leads.map((l) => ({

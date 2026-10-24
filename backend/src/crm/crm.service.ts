@@ -6,6 +6,11 @@ import { LeadStatus, LeadSource, ActivityType } from '@prisma/client';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { istDayStart } from '../dialer/dialer.rules';
 
+// A "hot" lead is one the customer said they're interested in. The stored
+// isHot / score columns only reflect how many fields were filled in at
+// import, so they are not used to rank or count hot leads.
+const HOT_LEAD_STATUS = LeadStatus.INTERESTED;
+
 @Injectable()
 export class CrmService {
   constructor(
@@ -43,8 +48,10 @@ export class CrmService {
           select: { outcome: true, notInterestedReason: true, startedAt: true },
         },
       },
-      orderBy: [{ isHot: 'desc' }, { score: 'desc' }, { updatedAt: 'desc' }],
+      orderBy: { updatedAt: 'desc' },
     });
+    // Hot (interested) leads first; stable sort keeps most recent first within each group.
+    leads.sort((a, b) => Number(b.status === HOT_LEAD_STATUS) - Number(a.status === HOT_LEAD_STATUS));
 
     // Attach duplicate warning: check if same phone exists in other agents' pipelines
     const phones = leads.map((l) => l.phone);
@@ -264,10 +271,12 @@ export class CrmService {
 
   // ─── POWER DIALER: get next lead to call ──────────────────────────────────
   async getNextDialerLead(agentId: string, currentLeadId?: string) {
-    const leads = await this.prisma.lead.findMany({
+    // Reserved leads only after the agent's other leads; within each, hot
+    // (interested) leads first, then least recently touched.
+    const nextWithStatus = (statuses: LeadStatus[]) => this.prisma.lead.findFirst({
       where: {
         agentId,
-        status: { in: ['NEW', 'CONTACTED', 'INTERESTED'] },
+        status: { in: statuses },
         id: currentLeadId ? { not: currentLeadId } : undefined,
         // Leads already called today are done for the day. Logging a call
         // doesn't change the lead, so without this the dialer kept bouncing
@@ -279,9 +288,7 @@ export class CrmService {
           },
         },
       },
-      // Reserved leads only after the agent's other leads.
-      orderBy: [{ isReserved: 'asc' }, { isHot: 'desc' }, { score: 'desc' }, { updatedAt: 'asc' }],
-      take: 1,
+      orderBy: [{ isReserved: 'asc' }, { updatedAt: 'asc' }],
       include: {
         followUps: {
           where: { status: 'PENDING' },
@@ -290,7 +297,12 @@ export class CrmService {
         },
       },
     });
-    return leads[0] ?? null;
+    const [hot, other] = await Promise.all([
+      nextWithStatus([HOT_LEAD_STATUS]),
+      nextWithStatus([LeadStatus.NEW, LeadStatus.CONTACTED]),
+    ]);
+    if (hot && (!other || Number(hot.isReserved) <= Number(other.isReserved))) return hot;
+    return other ?? null;
   }
 
   // ─── CSV BULK IMPORT ───────────────────────────────────────────────────────
@@ -411,7 +423,7 @@ export class CrmService {
         where,
         _count: { status: true },
       }),
-      this.prisma.lead.count({ where: { ...where, isHot: true } }),
+      this.prisma.lead.count({ where: { ...where, status: HOT_LEAD_STATUS } }),
       this.prisma.leadFollowUp.count({
         where: {
           status: 'PENDING',
