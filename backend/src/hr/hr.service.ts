@@ -50,7 +50,7 @@ export const SUPERADMIN_EMAIL = 'sanket.rareprint@gmail.com';
 // formula directly. Contact/bank/ID-proof-number typo fixes don't reset it.
 const PAYROLL_FIELDS = [
   'baseSalary', 'workingHoursPerDay', 'paidLeavePerMonth', 'annualPaidLeaveQuota',
-  'designation', 'department', 'status', 'overtimeAllowed',
+  'automaticPaidLeaveHours', 'designation', 'department', 'status', 'overtimeAllowed',
   'incentivePlanId', 'petrolAllowance', 'simAllowance',
 ] as const;
 
@@ -66,6 +66,7 @@ export type EmployeeUpsertDto = Partial<{
   workingHoursPerDay: number;
   paidLeavePerMonth: number;
   annualPaidLeaveQuota: number | null;
+  automaticPaidLeaveHours: number;
   dateOfJoining: string | null;
   dateOfBirth: string | null;
   gender: string | null;
@@ -111,19 +112,11 @@ export function workingDaysInMonth(year: number, month: number, offDow = WEEKLY_
   return count;
 }
 
-// Standing automatic monthly paid-leave credit ("2 days paid leave", per
-// Sanket, 2026-08-06) — applied every month for every employee without an
-// admin having to log a leave-ledger entry or tick the Attendance grid
-// checkbox. These 7 get 16h (2 x 8h day); everyone else gets 14h (2 x 7h
-// day). Matched on the first identifying word of the name since the list as
-// given includes honorifics/nicknames, not necessarily the literal stored
-// fullName — confirm these match your actual Employee list.
-const AUTOMATIC_16H_NAME_TOKENS = ['PRAJAKTA', 'VAISHALI', 'SANDIP', 'YASH', 'DEEPAK', 'WARSHA', 'SUNITA'];
-
-export function automaticMonthlyPaidLeaveHours(fullName: string | null | undefined): number {
-  const upper = (fullName ?? '').toUpperCase();
-  const is16h = AUTOMATIC_16H_NAME_TOKENS.some((token) => new RegExp(`\\b${token}\\b`).test(upper));
-  return is16h ? 16 : 14;
+function validateAutomaticPaidLeaveHours(v: number | undefined) {
+  if (v === undefined) return;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 999) {
+    throw new BadRequestException('automaticPaidLeaveHours must be a number between 0 and 999');
+  }
 }
 
 @Injectable()
@@ -236,6 +229,7 @@ export class HrService {
     if (dto.baseSalary === undefined || dto.baseSalary === null) {
       throw new BadRequestException('baseSalary is required');
     }
+    validateAutomaticPaidLeaveHours(dto.automaticPaidLeaveHours);
     try {
       return await this.prisma.employee.create({
         data: {
@@ -250,6 +244,7 @@ export class HrService {
           workingHoursPerDay: dto.workingHoursPerDay ?? 8,
           paidLeavePerMonth: dto.paidLeavePerMonth ?? 2,
           annualPaidLeaveQuota: this.toDecimalOrUndefined(dto.annualPaidLeaveQuota) ?? null,
+          automaticPaidLeaveHours: dto.automaticPaidLeaveHours ?? 14,
           dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : null,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
           gender: dto.gender ?? null,
@@ -284,6 +279,7 @@ export class HrService {
   async updateEmployee(id: string, dto: EmployeeUpsertDto): Promise<Employee> {
     const existing = await this.prisma.employee.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Employee not found');
+    validateAutomaticPaidLeaveHours(dto.automaticPaidLeaveHours);
 
     const data: Prisma.EmployeeUncheckedUpdateInput = {};
     if (dto.employeeCode !== undefined) data.employeeCode = dto.employeeCode.trim().toUpperCase();
@@ -296,6 +292,7 @@ export class HrService {
     if (dto.workingHoursPerDay !== undefined) data.workingHoursPerDay = dto.workingHoursPerDay;
     if (dto.paidLeavePerMonth !== undefined) data.paidLeavePerMonth = dto.paidLeavePerMonth;
     if (dto.annualPaidLeaveQuota !== undefined) data.annualPaidLeaveQuota = dto.annualPaidLeaveQuota;
+    if (dto.automaticPaidLeaveHours !== undefined) data.automaticPaidLeaveHours = dto.automaticPaidLeaveHours;
     if (dto.dateOfJoining !== undefined) data.dateOfJoining = dto.dateOfJoining ? new Date(dto.dateOfJoining) : null;
     if (dto.dateOfBirth !== undefined) data.dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : null;
     if (dto.gender !== undefined) data.gender = dto.gender;
@@ -574,15 +571,11 @@ export class HrService {
     const netDays = Math.max(0, workingDays - leaveDays);
     const workingHoursPerDay = Number(employee.workingHoursPerDay);
 
-    // Automatic 2-days-paid-leave-per-month credit, applied every month
-    // without needing a ledger entry or a grid checkbox — Sanket's standing
-    // rule, not something admins should have to re-enter each time. Named
-    // employees get 16h (2 x 8h), everyone else 14h (2 x 7h). Matched by the
-    // first identifying word of Employee.fullName (case-insensitive) since
-    // the names given include honorifics/nicknames ("Sandip Sir", "Sunita
-    // Designer") that likely aren't the literal stored fullName — verify
-    // these actually match your Employee list after deploying.
-    const automaticPaidLeaveHours = automaticMonthlyPaidLeaveHours(employee.fullName);
+    // Automatic monthly paid-leave credit, applied every month without needing
+    // a ledger entry or a grid checkbox. Stored per employee (HR > employee
+    // form); it used to be matched on first names, which missed SUNITHA and
+    // VARSHA because the list said SUNITA and WARSHA.
+    const automaticPaidLeaveHours = Number(employee.automaticPaidLeaveHours);
     const requiredHours = Math.max(0, netDays * workingHoursPerDay - automaticPaidLeaveHours);
     const hoursWorked = records.reduce((sum, r) => sum + Number(r.hoursWorked), 0);
     const absentHours = hoursWorked - requiredHours;

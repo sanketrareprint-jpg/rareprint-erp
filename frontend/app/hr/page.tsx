@@ -28,7 +28,7 @@ type EmployeeListItem = {
 
 type EmployeeDetail = EmployeeListItem & {
   biometricId: string | null; workingHoursPerDay: string | number; paidLeavePerMonth: string | number;
-  annualPaidLeaveQuota: string | number | null; dateOfBirth: string | null; gender: string | null;
+  annualPaidLeaveQuota: string | number | null; automaticPaidLeaveHours: string | number; dateOfBirth: string | null; gender: string | null;
   address: string | null; alternateMobile: string | null; emergencyContactName: string | null;
   emergencyContactPhone: string | null; idProofType: string | null; idProofNumber: string | null;
   bankAccountNumber: string | null; bankIfsc: string | null; idProofDocUrl: string | null; notes: string | null;
@@ -58,7 +58,7 @@ const RESPONSIBILITY_TITLES = ["SALES TARGET", "CUSTOMER HANDLING", "MACHINE OPE
 const emptyForm = {
   employeeCode: "", biometricId: "", fullName: "", designation: "", department: "",
   status: "ACTIVE", baseSalary: "", workingHoursPerDay: "8", paidLeavePerMonth: "2",
-  annualPaidLeaveQuota: "", dateOfJoining: "", dateOfBirth: "", gender: "", address: "",
+  annualPaidLeaveQuota: "", automaticPaidLeaveHours: "14", dateOfJoining: "", dateOfBirth: "", gender: "", address: "",
   mobileNumber: "", alternateMobile: "", emergencyContactName: "", emergencyContactPhone: "",
   idProofType: "", idProofNumber: "", bankAccountNumber: "", bankIfsc: "", notes: "",
   email: "", overtimeAllowed: false,
@@ -202,6 +202,7 @@ export default function HrPage() {
         baseSalary: String(data.baseSalary ?? ""), workingHoursPerDay: String(data.workingHoursPerDay ?? "8"),
         paidLeavePerMonth: String(data.paidLeavePerMonth ?? "2"),
         annualPaidLeaveQuota: data.annualPaidLeaveQuota != null ? String(data.annualPaidLeaveQuota) : "",
+        automaticPaidLeaveHours: String(data.automaticPaidLeaveHours ?? "14"),
         dateOfJoining: data.dateOfJoining ? data.dateOfJoining.slice(0, 10) : "",
         dateOfBirth: data.dateOfBirth ? data.dateOfBirth.slice(0, 10) : "",
         gender: data.gender ?? "", address: data.address ?? "", mobileNumber: data.mobileNumber ?? "",
@@ -256,6 +257,7 @@ export default function HrPage() {
       workingHoursPerDay: Number(form.workingHoursPerDay || 8),
       paidLeavePerMonth: Number(form.paidLeavePerMonth || 2),
       annualPaidLeaveQuota: form.annualPaidLeaveQuota ? Number(form.annualPaidLeaveQuota) : null,
+      automaticPaidLeaveHours: form.automaticPaidLeaveHours === "" ? 14 : Number(form.automaticPaidLeaveHours),
       biometricId: form.biometricId || null,
       dateOfJoining: form.dateOfJoining || null,
       dateOfBirth: form.dateOfBirth || null,
@@ -616,6 +618,7 @@ export default function HrPage() {
                 <Field label="Working Hours / Day"><input type="number" value={form.workingHoursPerDay} onChange={(e) => setForm({ ...form, workingHoursPerDay: e.target.value })} className={INPUT_CLS} /></Field>
                 <Field label="Paid Leave / Month"><input type="number" value={form.paidLeavePerMonth} onChange={(e) => setForm({ ...form, paidLeavePerMonth: e.target.value })} className={INPUT_CLS} /></Field>
                 <Field label="Annual Leave Quota"><input type="number" value={form.annualPaidLeaveQuota} onChange={(e) => setForm({ ...form, annualPaidLeaveQuota: e.target.value })} placeholder={`${Number(form.paidLeavePerMonth || 2) * 12} (default)`} className={INPUT_CLS} /></Field>
+                <Field label="Auto Paid Leave Hrs / Month"><input type="number" min={0} value={form.automaticPaidLeaveHours} onChange={(e) => setForm({ ...form, automaticPaidLeaveHours: e.target.value })} title="Taken off required hours every month automatically, no leave entry needed" className={INPUT_CLS} /></Field>
                 <Field label="Overtime Allowed">
                   <label className="flex items-center gap-2 h-[34px] text-sm">
                     <input type="checkbox" checked={form.overtimeAllowed} onChange={(e) => setForm({ ...form, overtimeAllowed: e.target.checked })} className="w-4 h-4" />
